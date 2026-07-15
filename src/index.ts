@@ -4,14 +4,23 @@
  *   GET  /                         -> built-in AG-UI test client (public/index.html)
  *   POST /sessions {prompt,...}    -> {sessionId}
  *   GET  /sessions/:id/events      -> SSE AG-UI stream; honours Last-Event-ID
- *   GET  /auth/github/login        -> 302 to GitHub App authorize
+ *   GET  /auth/github/login        -> 302 to GitHub App authorize (?link=<t> connects a chat user)
  *   GET  /auth/github/callback     -> code exchange; stores the user's token
  *   GET  /auth/github/status       -> { connected, login, configured }
+ *   GET  /api/setup/status         -> { configured, appSlug }
+ *   GET  /api/setup/github/start   -> manifest auto-POST page (setup-link gated)
+ *   GET  /api/setup/github/callback-> manifest-code exchange; stores App creds
  *
- * GitHub auth: per-user GitHub App OAuth. A `bridge_uid` cookie is the stable
- * client identity; the user's token lives in the Store (Postgres), reused across
- * their sessions/reconnects. On session start we resolve a valid token (refresh
- * if needed) and inject it as GH_TOKEN into the Claude child; a git credential
+ * GitHub App provisioning is chat-driven: an admin (ADMIN_USER_IDS) runs
+ * /setup-github in a DM, the adapter mints a signed setup link, and the two
+ * routes above drive GitHub's App-Manifest flow to create the App (auth/setup.ts).
+ * Resolved creds live in auth/app-config.ts (stored in the DB).
+ *
+ * GitHub auth: per-user GitHub App OAuth. Users connect via /connect-github in
+ * chat (token keyed by the messaging userId) or the browser (keyed by a
+ * `bridge_uid` cookie). Tokens live in the Store (Postgres), reused across
+ * sessions/reconnects. On session start we resolve a valid token (refresh if
+ * needed) and inject it as GH_TOKEN into the Claude child; a git credential
  * helper baked into the image makes git/gh use it. No static PAT.
  *
  * SCAFFOLD skeleton — CSRF-state GC, cookie signing, token encryption-at-rest,
@@ -31,7 +40,10 @@ import { startTelemetrySdk, shutdownTelemetrySdk } from "./telemetry/bootstrap.t
 import { InMemoryResultStore, toRunRecord, type ResultStore } from "./persistence/results.ts";
 import { resolveModel, describeAuth } from "./config/model.ts";
 import { createStore, type Store } from "./store/index.ts";
-import { authorizeUrl, exchangeCode, getValidToken, githubConfigured } from "./auth/github-app.ts";
+import { authorizeUrl, exchangeCode, getValidToken } from "./auth/github-app.ts";
+import { githubConfigured, getAppCreds, saveAppCreds, loadAppCreds } from "./auth/app-config.ts";
+import { verifyState, buildManifest, convertManifestCode, renderManifestForm } from "./auth/setup.ts";
+import { getServerSecret, verifyLink } from "./auth/connect.ts";
 import { SSE_HEADERS, frameLogged, sseHeartbeat, parseLastEventId } from "./transport/sse.ts";
 
 const PORT = Number(process.env.PORT ?? 8080);
@@ -41,7 +53,8 @@ const registry = new SessionRegistry();
 const resultStore: ResultStore = new InMemoryResultStore();
 /** bridge session id -> Claude's session_id (for --resume). */
 const claudeSessionIds = new Map<string, string>();
-/** OAuth CSRF: state nonce -> bridge_uid. TODO: TTL/GC. */
+/** OAuth CSRF: state nonce -> user key (bridge_uid, or a messaging userId for
+ * connect-link logins). TODO: TTL/GC. */
 const pendingStates = new Map<string, string>();
 let telemetry: Telemetry;
 let store: Store;
@@ -163,14 +176,29 @@ function serveStatic(req: IncomingMessage, res: ServerResponse): void {
 
 /* ---------------- GitHub OAuth routes ---------------- */
 
-function githubLogin(req: IncomingMessage, res: ServerResponse): void {
+async function githubLogin(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
   if (!githubConfigured()) {
     res.writeHead(503).end("GitHub App not configured");
     return;
   }
-  const uid = ensureUid(req, res);
+  // A `link` param carries a signed messaging userId (minted by the chat
+  // adapter). When present, connect THAT identity instead of a browser
+  // bridge_uid, so the token lands under the key the adapter resolves
+  // (StreamOptions.userId). Otherwise fall back to the cookie identity.
+  const link = url.searchParams.get("link");
+  let userKey: string;
+  if (link) {
+    const bound = verifyLink(link, "connect", await getServerSecret(store));
+    if (!bound) {
+      res.writeHead(400).end("invalid or expired connect link");
+      return;
+    }
+    userKey = bound;
+  } else {
+    userKey = ensureUid(req, res);
+  }
   const state = randomUUID();
-  pendingStates.set(state, uid);
+  pendingStates.set(state, userKey);
   res.setHeader("Location", authorizeUrl(state));
   res.writeHead(302).end();
 }
@@ -187,12 +215,21 @@ async function githubCallback(url: URL, res: ServerResponse): Promise<void> {
   try {
     const rec = await exchangeCode(code);
     await store.putGithubToken(uid, rec);
-    res.setHeader("Location", "/?github=connected");
-    res.writeHead(302).end();
+    sendPage(res, 200, "GitHub connected", `Signed in as ${rec.githubLogin ?? "your account"}. You can return to your chat.`);
   } catch (e) {
     console.error(`[github] code exchange failed: ${(e as Error).message}`);
-    res.writeHead(502).end("GitHub OAuth exchange failed");
+    sendPage(res, 502, "Connection failed", "GitHub OAuth exchange failed. Please try /connect-github again.");
   }
+}
+
+/** Minimal HTML confirmation page — the browser lands here after an OAuth or
+ *  manifest round-trip, then the user returns to chat. */
+function sendPage(res: ServerResponse, status: number, title: string, body: string): void {
+  res.writeHead(status, { "Content-Type": "text/html; charset=utf-8" }).end(
+    `<!doctype html><html><head><meta charset="utf-8"><title>${title}</title></head>` +
+      `<body style="font-family:system-ui,sans-serif;max-width:40rem;margin:4rem auto;padding:0 1rem">` +
+      `<h1>${title}</h1><p>${body}</p></body></html>`,
+  );
 }
 
 async function githubStatus(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -201,6 +238,49 @@ async function githubStatus(req: IncomingMessage, res: ServerResponse): Promise<
   res.writeHead(200, { "Content-Type": "application/json" }).end(
     JSON.stringify({ configured: githubConfigured(), connected: Boolean(rec), login: rec?.githubLogin ?? null }),
   );
+}
+
+/* ---------------- GitHub App setup (App-Manifest) routes ---------------- */
+
+/**
+ * GET /api/setup/github/start?link=<t>[&org=<o>] — the admin lands here from
+ * the setup link the chat adapter minted (after its isAdmin check). The signed,
+ * kind-bound link is the sole gate on this endpoint; we then render a page that
+ * POSTs the manifest to GitHub. No SETUP_TOKEN — authorization already happened
+ * in chat.
+ */
+async function setupStart(url: URL, res: ServerResponse): Promise<void> {
+  const secret = await getServerSecret(store);
+  if (!verifyLink(url.searchParams.get("link"), "setup", secret)) {
+    sendPage(res, 400, "Invalid setup link", "This setup link is invalid or expired. Run /setup-github again to get a fresh one.");
+    return;
+  }
+  const org = url.searchParams.get("org") || undefined;
+  const { manifest, manifestUrl } = buildManifest(secret, org);
+  res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }).end(renderManifestForm(manifest, manifestUrl));
+}
+
+/**
+ * GET /api/setup/github/callback — GitHub redirects here after the App is
+ * created. The signed `state` proves the request follows a real start; we
+ * exchange the code for the App's credentials and store them.
+ */
+async function setupCallback(url: URL, res: ServerResponse): Promise<void> {
+  const code = url.searchParams.get("code");
+  const state = url.searchParams.get("state");
+  if (!code || !verifyState(state, await getServerSecret(store))) {
+    sendPage(res, 400, "Invalid setup callback", "This request is invalid or expired. Run /setup-github again.");
+    return;
+  }
+  try {
+    const creds = await convertManifestCode(code);
+    await saveAppCreds(store, creds);
+    console.log(`[setup] GitHub App '${creds.slug ?? "?"}' provisioned; OAuth is now configured`);
+    sendPage(res, 200, "GitHub App created", "Setup is done. Return to your chat and run /connect-github to connect your account.");
+  } catch (e) {
+    console.error(`[setup] manifest conversion failed: ${(e as Error).message}`);
+    sendPage(res, 502, "Setup failed", "The GitHub App could not be created. Check the logs and run /setup-github again.");
+  }
 }
 
 /* ---------------- messaging (web / Slack via the sidecar) ---------------- */
@@ -236,8 +316,16 @@ async function main(): Promise<void> {
   await startTelemetrySdk();
   telemetry = await createTelemetry();
   store = await createStore();
+  await loadAppCreds(store);
+  await getServerSecret(store); // stable HMAC secret for messaging connect links
   console.log(`[bridge] ${describeAuth()}`);
-  console.log(`[bridge] github: ${githubConfigured() ? "GitHub App OAuth configured" : "not configured (set GITHUB_APP_CLIENT_ID/SECRET)"}`);
+  console.log(
+    `[bridge] github: ${
+      githubConfigured()
+        ? `GitHub App OAuth configured${getAppCreds()?.slug ? ` (${getAppCreds()!.slug})` : ""}`
+        : "not configured — an admin can provision it from chat with /setup-github"
+    }`,
+  );
   await startMessaging();
 
   const server = createServer((req, res) => {
@@ -247,7 +335,8 @@ async function main(): Promise<void> {
       return serveStatic(req, res);
     }
     if (req.method === "GET" && url.pathname === "/auth/github/login") {
-      return githubLogin(req, res);
+      void githubLogin(req, res, url);
+      return;
     }
     if (req.method === "GET" && url.pathname === "/auth/github/callback") {
       void githubCallback(url, res);
@@ -255,6 +344,23 @@ async function main(): Promise<void> {
     }
     if (req.method === "GET" && url.pathname === "/auth/github/status") {
       void githubStatus(req, res);
+      return;
+    }
+    if (req.method === "GET" && url.pathname === "/api/setup/status") {
+      res.writeHead(200, { "Content-Type": "application/json" }).end(
+        JSON.stringify({
+          configured: githubConfigured(),
+          appSlug: getAppCreds()?.slug ?? null,
+        }),
+      );
+      return;
+    }
+    if (req.method === "GET" && url.pathname === "/api/setup/github/start") {
+      void setupStart(url, res);
+      return;
+    }
+    if (req.method === "GET" && url.pathname === "/api/setup/github/callback") {
+      void setupCallback(url, res);
       return;
     }
 

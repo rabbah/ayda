@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=https://astropods.ai/schema/package.json
 spec: package/v1
-name: ada
+name: ayda
 
 agent:
   build:
@@ -32,24 +32,19 @@ agent:
   astro_ai_gateway: true
 
 inputs:
-  # GitHub App (user-to-server OAuth). Each user connects their own GitHub via
-  # the agent's frontend (authorization-code flow) — no static token in the
-  # container. Register a GitHub App: set its callback to
-  # ${ASTRO_EXTERNAL_AGENT_URL}/auth/github/callback, enable "Expire user
-  # authorization tokens" (issues refresh tokens), and grant the permissions the
-  # agent needs (Contents: Read/Write, Pull requests: Write). Only the OAuth
-  # client id/secret are needed for the user-to-server flow (the App private key
-  # is for installation tokens, which we don't use).
-  GITHUB_APP_CLIENT_ID:
-    name: GITHUB_APP_CLIENT_ID
+  # GitHub App provisioning is chat-driven. List the messaging user IDs allowed
+  # to run `/setup-github` (comma-separated). That directive walks GitHub's
+  # App-Manifest flow — it creates a correctly-configured GitHub App (callback,
+  # permissions) in a couple clicks and stores its OAuth credentials in the DB.
+  # No manual App registration, no client id/secret to copy. Regular users then
+  # connect their own GitHub with `/connect-github`. Leave unset and no one can
+  # provision the App (GitHub stays disabled). The ID is the sidecar userId — for
+  # linked Slack users this is the Astro user ID. Unsure which value to list? DM
+  # the agent `/whoami` and it reports your userId.
+  ADMIN_USER_IDS:
+    name: ADMIN_USER_IDS
     datatype: string
-    description: "GitHub App OAuth client id"
-    display-as: short-text
-  GITHUB_APP_CLIENT_SECRET:
-    name: GITHUB_APP_CLIENT_SECRET
-    datatype: string
-    secret: true
-    description: "GitHub App OAuth client secret"
+    description: "Comma-separated messaging user IDs allowed to run /setup-github"
     display-as: short-text
 
 knowledge:

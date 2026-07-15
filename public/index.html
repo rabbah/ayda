@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Ada · test client</title>
+<title>Ayda · test client</title>
 <style>
   :root { --bg:#0f1115; --panel:#181b22; --line:#272b34; --fg:#e6e8ec; --muted:#8b93a1;
           --user:#1e2a3a; --asst:#1b2620; --tool:#2a2418; --accent:#6ea8fe; --err:#ff6b6b; --ok:#5bd08b; }
@@ -56,7 +56,7 @@
 </head>
 <body>
 <header>
-  <h1>Ada</h1>
+  <h1>Ayda</h1>
   <span class="chip">session <b id="sid">—</b></span>
   <span class="chip">status <b id="status">idle</b></span>
   <span class="chip">model <b id="model">—</b></span>
@@ -91,14 +91,16 @@ let es = null, sessionId = null, lastEventId = null, pendingEl = null;
 // Reveal it with ?debug — e.g. http://localhost:8080/?debug
 if (new URLSearchParams(location.search).has("debug")) document.body.classList.add("debug");
 
-// GitHub connection status (per-user OAuth). Shows a connect link until connected.
+// GitHub connection status — read-only. Provisioning and per-user connect are
+// driven from chat now (/setup-github by an admin, /connect-github by a user),
+// so this just reflects state; it doesn't offer actions.
 async function refreshGh(){
   try {
     const s = await (await fetch("/auth/github/status")).json();
     const el = $("gh");
-    if (!s.configured) el.textContent = "n/a";
-    else if (s.connected) el.textContent = "✓ " + (s.login || "connected");
-    else el.innerHTML = '<a href="/auth/github/login" style="color:var(--accent)">connect</a>';
+    if (s.connected) el.textContent = "✓ " + (s.login || "connected");
+    else if (s.configured) el.textContent = "not connected — /connect-github in chat";
+    else el.textContent = "not set up — admin: /setup-github in chat";
   } catch { $("gh").textContent = "?"; }
 }
 refreshGh();

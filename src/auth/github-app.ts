@@ -9,28 +9,24 @@
  * Token lifetimes (with "Expire user authorization tokens" enabled): access
  * `ghu_` = 8h, refresh `ghr_` = 6mo. Refresh ROTATES both tokens and invalidates
  * the old pair — so getValidToken() persists the rotated record before returning.
+ *
+ * Credentials (client_id/client_secret) resolve via auth/app-config.ts — either
+ * self-provisioned through the in-app setup flow (stored in the DB) or supplied
+ * via env as a fallback. This module never reads those env vars directly.
  */
 
 import type { GithubTokenRecord, Store } from "../store/store.ts";
+import { getAppCreds, type GithubAppCreds } from "./app-config.ts";
 
 const AUTHORIZE_URL = "https://github.com/login/oauth/authorize";
 const TOKEN_URL = "https://github.com/login/oauth/access_token";
 const USER_URL = "https://api.github.com/user";
 const REFRESH_BUFFER_MS = 5 * 60 * 1000; // refresh when <5 min of access-token life remains
 
-export function githubConfigured(env: NodeJS.ProcessEnv = process.env): boolean {
-  return Boolean(env.GITHUB_APP_CLIENT_ID && env.GITHUB_APP_CLIENT_SECRET);
-}
-
-function clientId(env: NodeJS.ProcessEnv): string {
-  const v = env.GITHUB_APP_CLIENT_ID;
-  if (!v) throw new Error("GITHUB_APP_CLIENT_ID is not set");
-  return v;
-}
-function clientSecret(env: NodeJS.ProcessEnv): string {
-  const v = env.GITHUB_APP_CLIENT_SECRET;
-  if (!v) throw new Error("GITHUB_APP_CLIENT_SECRET is not set");
-  return v;
+function requireCreds(): GithubAppCreds {
+  const c = getAppCreds();
+  if (!c) throw new Error("GitHub App is not configured — an admin must run /setup-github in chat");
+  return c;
 }
 
 export function callbackUrl(env: NodeJS.ProcessEnv = process.env): string {
@@ -41,7 +37,7 @@ export function callbackUrl(env: NodeJS.ProcessEnv = process.env): string {
 /** The authorize URL to redirect the user to. `state` is a CSRF nonce. */
 export function authorizeUrl(state: string, env: NodeJS.ProcessEnv = process.env): string {
   const params = new URLSearchParams({
-    client_id: clientId(env),
+    client_id: requireCreds().clientId,
     redirect_uri: callbackUrl(env),
     state,
     // no `scope` — GitHub Apps use configured permissions
@@ -90,8 +86,9 @@ export async function exchangeCode(
   env: NodeJS.ProcessEnv = process.env,
   fetchImpl: typeof fetch = fetch,
 ): Promise<GithubTokenRecord> {
+  const c = requireCreds();
   const rec = await postToken(
-    { client_id: clientId(env), client_secret: clientSecret(env), code, redirect_uri: callbackUrl(env) },
+    { client_id: c.clientId, client_secret: c.clientSecret, code, redirect_uri: callbackUrl(env) },
     fetchImpl,
   );
   return attachUser(rec, fetchImpl);
@@ -99,11 +96,11 @@ export async function exchangeCode(
 
 export async function refresh(
   refreshToken: string,
-  env: NodeJS.ProcessEnv = process.env,
   fetchImpl: typeof fetch = fetch,
 ): Promise<GithubTokenRecord> {
+  const c = requireCreds();
   return postToken(
-    { client_id: clientId(env), client_secret: clientSecret(env), grant_type: "refresh_token", refresh_token: refreshToken },
+    { client_id: c.clientId, client_secret: c.clientSecret, grant_type: "refresh_token", refresh_token: refreshToken },
     fetchImpl,
   );
 }
@@ -137,7 +134,6 @@ async function attachUser(rec: GithubTokenRecord, fetchImpl: typeof fetch): Prom
 export async function getValidToken(
   store: Store,
   userKey: string,
-  env: NodeJS.ProcessEnv = process.env,
   fetchImpl: typeof fetch = fetch,
 ): Promise<string | null> {
   const rec = await store.getGithubToken(userKey);
@@ -148,7 +144,7 @@ export async function getValidToken(
   if (!rec.refreshToken) return rec.accessToken; // App configured non-expiring
   if (rec.refreshTokenExpiresAt != null && rec.refreshTokenExpiresAt < Date.now()) return null; // must reconnect
 
-  const refreshed = await refresh(rec.refreshToken, env, fetchImpl);
+  const refreshed = await refresh(rec.refreshToken, fetchImpl);
   refreshed.githubLogin = rec.githubLogin;
   refreshed.githubUserId = rec.githubUserId;
   // Persist the rotated pair BEFORE returning — the old refresh token is now dead.

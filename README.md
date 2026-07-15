@@ -1,11 +1,17 @@
-# Ada
+# Ayda
 
-**Ada** is a coding agent powered by Claude Code (repo dir: `claude-code-agui-bridge`).
+**Ayda** is a coding agent powered by Claude Code (repo dir: `claude-code-agui-bridge`).
 Runs Claude Code headlessly in a container and re-emits its output as
 **AG-UI** events over **SSE**, so any AG-UI-compatible frontend (CopilotKit,
 custom dashboards) can consume it directly. An Astropods/K8s workload: a
 wrapper process that supervises a `claude -p` session and exposes it over a
 clean event API.
+
+> **Why the name?** Named for **Ada Lovelace** (1815–1852), who wrote the first
+> algorithm intended to be carried out by a machine and is widely regarded as the
+> first computer programmer — a fitting namesake for an agent that writes and runs
+> code for you. The Astropods blueprint deploys as **`ayda`** (a phonetic spelling
+> of "Ada") because `ada` isn't a valid blueprint name.
 
 > Status: **scaffold**. The translator + demo are complete and runnable; the
 > supervisor, HTTP/MQ transports, OTel sink, and persistence are real but
