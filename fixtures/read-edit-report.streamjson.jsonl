@@ -1,0 +1,28 @@
+{"type":"system","subtype":"init","session_id":"sess_7f3a","cwd":"/workspace","model":"claude-opus-4-8","permissionMode":"acceptEdits","apiKeySource":"env","tools":["Read","Edit","Bash","Grep"],"capabilities":["interrupt_receipt_v1"],"uuid":"u01"}
+{"type":"stream_event","session_id":"sess_7f3a","uuid":"u02","event":{"type":"message_start","message":{"id":"msg_a1","role":"assistant","model":"claude-opus-4-8"}}}
+{"type":"stream_event","session_id":"sess_7f3a","uuid":"u03","event":{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}}
+{"type":"stream_event","session_id":"sess_7f3a","uuid":"u04","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"I'll read the config, "}}}
+{"type":"stream_event","session_id":"sess_7f3a","uuid":"u05","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"edit it, then report back."}}}
+{"type":"stream_event","session_id":"sess_7f3a","uuid":"u06","event":{"type":"content_block_stop","index":0}}
+{"type":"stream_event","session_id":"sess_7f3a","uuid":"u07","event":{"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu_read","name":"Read"}}}
+{"type":"stream_event","session_id":"sess_7f3a","uuid":"u08","event":{"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"file_path\":\"/workspace/"}}}
+{"type":"stream_event","session_id":"sess_7f3a","uuid":"u09","event":{"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"config.json\"}"}}}
+{"type":"stream_event","session_id":"sess_7f3a","uuid":"u10","event":{"type":"content_block_stop","index":1}}
+{"type":"assistant","session_id":"sess_7f3a","parent_tool_use_id":null,"message":{"id":"msg_a1","role":"assistant","model":"claude-opus-4-8","content":[{"type":"text","text":"I'll read the config, edit it, then report back."},{"type":"tool_use","id":"toolu_read","name":"Read","input":{"file_path":"/workspace/config.json"}}],"usage":{"input_tokens":1520,"output_tokens":48}}}
+{"type":"user","session_id":"sess_7f3a","parent_tool_use_id":null,"message":{"id":"msg_u1","role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_read","content":"{\n  \"retries\": 3,\n  \"timeout_ms\": 1000\n}","is_error":false}]}}
+{"type":"stream_event","session_id":"sess_7f3a","uuid":"u11","event":{"type":"message_start","message":{"id":"msg_a2","role":"assistant","model":"claude-opus-4-8"}}}
+{"type":"stream_event","session_id":"sess_7f3a","uuid":"u12","event":{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}}
+{"type":"stream_event","session_id":"sess_7f3a","uuid":"u13","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Found retries=3. Bumping to 5."}}}
+{"type":"stream_event","session_id":"sess_7f3a","uuid":"u14","event":{"type":"content_block_stop","index":0}}
+{"type":"stream_event","session_id":"sess_7f3a","uuid":"u15","event":{"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu_edit","name":"Edit"}}}
+{"type":"stream_event","session_id":"sess_7f3a","uuid":"u16","event":{"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"file_path\":\"/workspace/config.json\","}}}
+{"type":"stream_event","session_id":"sess_7f3a","uuid":"u17","event":{"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"\"old_string\":\"\\\"retries\\\": 3\",\"new_string\":\"\\\"retries\\\": 5\"}"}}}
+{"type":"stream_event","session_id":"sess_7f3a","uuid":"u18","event":{"type":"content_block_stop","index":1}}
+{"type":"assistant","session_id":"sess_7f3a","parent_tool_use_id":null,"message":{"id":"msg_a2","role":"assistant","model":"claude-opus-4-8","content":[{"type":"text","text":"Found retries=3. Bumping to 5."},{"type":"tool_use","id":"toolu_edit","name":"Edit","input":{"file_path":"/workspace/config.json","old_string":"\"retries\": 3","new_string":"\"retries\": 5"}}],"usage":{"input_tokens":1602,"output_tokens":60}}}
+{"type":"user","session_id":"sess_7f3a","parent_tool_use_id":null,"message":{"id":"msg_u2","role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_edit","content":"Applied 1 edit to /workspace/config.json","is_error":false}]}}
+{"type":"stream_event","session_id":"sess_7f3a","uuid":"u19","event":{"type":"message_start","message":{"id":"msg_a3","role":"assistant","model":"claude-opus-4-8"}}}
+{"type":"stream_event","session_id":"sess_7f3a","uuid":"u20","event":{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}}
+{"type":"stream_event","session_id":"sess_7f3a","uuid":"u21","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Done. /workspace/config.json now has retries: 5 (was 3)."}}}
+{"type":"stream_event","session_id":"sess_7f3a","uuid":"u22","event":{"type":"content_block_stop","index":0}}
+{"type":"assistant","session_id":"sess_7f3a","parent_tool_use_id":null,"message":{"id":"msg_a3","role":"assistant","model":"claude-opus-4-8","content":[{"type":"text","text":"Done. /workspace/config.json now has retries: 5 (was 3)."}],"usage":{"input_tokens":1670,"output_tokens":22}}}
+{"type":"result","subtype":"success","session_id":"sess_7f3a","result":"Done. /workspace/config.json now has retries: 5 (was 3).","total_cost_usd":0.0429,"is_error":false,"duration_ms":8123,"duration_api_ms":7010,"num_turns":3,"stop_reason":"end_turn","usage":{"input_tokens":4792,"output_tokens":130,"cache_creation_input_tokens":0,"cache_read_input_tokens":3200},"model_usage":{"claude-opus-4-8":{"input_tokens":4792,"output_tokens":130,"cost_usd":0.0429}},"permission_denials":[],"error":null,"uuid":"uR"}

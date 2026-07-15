@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Ada · test client</title>
+<style>
+  :root { --bg:#0f1115; --panel:#181b22; --line:#272b34; --fg:#e6e8ec; --muted:#8b93a1;
+          --user:#1e2a3a; --asst:#1b2620; --tool:#2a2418; --accent:#6ea8fe; --err:#ff6b6b; --ok:#5bd08b; }
+  * { box-sizing:border-box; }
+  html, body { height:100%; }
+  body { margin:0; font:14px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:var(--bg); color:var(--fg);
+         height:100vh; display:flex; flex-direction:column; overflow:hidden; }
+  header { flex:0 0 auto; padding:12px 16px; border-bottom:1px solid var(--line); display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  header h1 { font-size:14px; margin:0; font-weight:600; }
+  .chip { font-size:12px; color:var(--muted); border:1px solid var(--line); border-radius:99px; padding:2px 10px; }
+  .chip b { color:var(--fg); font-weight:600; }
+  #status.running { color:var(--accent); } #status.finished { color:var(--ok); } #status.errored { color:var(--err); }
+  main { flex:1 1 auto; min-height:0; display:grid; grid-template-columns: 1fr; gap:0; }
+  body.debug main { grid-template-columns: 1fr 380px; }
+  #timeline { overflow:auto; padding:16px; }
+  #side { display:none; border-left:1px solid var(--line); overflow:auto; padding:16px; background:#0c0e12; }
+  body.debug #side { display:block; }
+  form { flex:0 0 auto; display:flex; gap:8px; padding:12px 16px; border-top:1px solid var(--line); background:var(--panel); }
+  input[type=text] { flex:1; background:var(--panel); border:1px solid var(--line); color:var(--fg); border-radius:8px; padding:8px 10px; font:inherit; }
+  button { background:var(--panel); border:1px solid var(--line); color:var(--fg); border-radius:8px; padding:8px 12px; cursor:pointer; font:inherit; }
+  button:hover { border-color:var(--accent); }
+  label.demo { color:var(--muted); display:flex; align-items:center; gap:6px; }
+  .bubble { border:1px solid var(--line); border-radius:10px; padding:10px 12px; margin:0 0 12px; white-space:pre-wrap; }
+  .bubble.user { background:var(--user); } .bubble.assistant { background:var(--asst); }
+  .role { font-size:11px; color:var(--muted); margin-bottom:4px; text-transform:uppercase; letter-spacing:.05em; }
+  .tool { background:var(--tool); border:1px solid var(--line); border-radius:10px; padding:10px 12px; margin:0 0 12px; }
+  .tool > summary { cursor:pointer; list-style:none; user-select:none; }
+  .tool > summary::-webkit-details-marker { display:none; }
+  .tool > summary::before { content:"▸"; color:var(--muted); margin-right:6px; }
+  .tool[open] > summary::before { content:"▾"; }
+  .tool.done > summary .name::after { content:" ✓"; color:var(--ok); }
+  .tool .name { color:var(--accent); font-weight:600; }
+  .summary-hint { color:var(--muted); margin-left:8px; }
+  .tool pre { margin:6px 0 0; padding:8px; background:#0c0e12; border-radius:6px; overflow:auto; }
+  .tool .result { margin-top:8px; border-top:1px dashed var(--line); padding-top:8px; color:var(--ok); }
+  .tool .result.err { color:var(--err); }
+  .notice { color:var(--muted); font-style:italic; margin:0 0 12px; }
+  .final { border-left:3px solid var(--ok); padding-left:10px; margin:8px 0; }
+  #status.starting { color:#e6b455; }
+  .pending { color:var(--muted); display:flex; align-items:center; gap:8px; margin:4px 0 12px; }
+  .pending .dot { width:8px; height:8px; border-radius:50%; background:var(--accent); animation:pulse 1s infinite ease-in-out; }
+  @keyframes pulse { 0%,100%{opacity:.25} 50%{opacity:1} }
+  input[type=text]:disabled, button:disabled { opacity:.5; cursor:not-allowed; }
+  h2 { font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; margin:0 0 8px; }
+  #rawlog { font-size:12px; }
+  #rawlog div { padding:3px 0; border-bottom:1px solid #14171d; word-break:break-all; }
+  #rawlog .seq { color:var(--accent); }
+  .toolbar { display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Ada</h1>
+  <span class="chip">session <b id="sid">—</b></span>
+  <span class="chip">status <b id="status">idle</b></span>
+  <span class="chip">model <b id="model">—</b></span>
+  <span class="chip">conn <b id="conn">—</b></span>
+  <span class="chip">lastEventId <b id="lei">—</b></span>
+  <span class="chip">github <b id="gh">—</b></span>
+</header>
+
+<main>
+  <section id="timeline"></section>
+  <aside id="side">
+    <div class="toolbar">
+      <button id="disconnect">Disconnect</button>
+      <button id="reconnect">Reconnect (replay)</button>
+    </div>
+    <h2>Raw AG-UI events</h2>
+    <div id="rawlog"></div>
+  </aside>
+</main>
+
+<form id="composer">
+  <input id="prompt" type="text" placeholder="Prompt (e.g. bump retries in config.json)" autocomplete="off" />
+  <button id="send" type="submit">Send</button>
+</form>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const timeline = $("timeline"), rawlog = $("rawlog");
+let es = null, sessionId = null, lastEventId = null, pendingEl = null;
+
+// The raw AG-UI event inspector (right pane) is a dev tool, hidden by default.
+// Reveal it with ?debug — e.g. http://localhost:8080/?debug
+if (new URLSearchParams(location.search).has("debug")) document.body.classList.add("debug");
+
+// GitHub connection status (per-user OAuth). Shows a connect link until connected.
+async function refreshGh(){
+  try {
+    const s = await (await fetch("/auth/github/status")).json();
+    const el = $("gh");
+    if (!s.configured) el.textContent = "n/a";
+    else if (s.connected) el.textContent = "✓ " + (s.login || "connected");
+    else el.innerHTML = '<a href="/auth/github/login" style="color:var(--accent)">connect</a>';
+  } catch { $("gh").textContent = "?"; }
+}
+refreshGh();
+const messages = new Map();  // messageId -> {el, buf}
+const tools = new Map();     // toolCallId -> {el, argsEl, resultEl, buf}
+
+function setStatus(s){ const el=$("status"); el.textContent=s; el.className=""; el.classList.add(s); }
+function setConn(s){ $("conn").textContent = s; }
+
+function messageBubble(messageId, role){
+  let m = messages.get(messageId);
+  if (m) return m;
+  const el = document.createElement("div");
+  el.className = "bubble " + (role === "user" ? "user" : "assistant");
+  el.innerHTML = `<div class="role">${role}</div><div class="body"></div>`;
+  timeline.appendChild(el);
+  m = { el, body: el.querySelector(".body"), buf: "" };
+  messages.set(messageId, m);
+  scroll();
+  return m;
+}
+
+function toolCard(toolCallId, name){
+  let t = tools.get(toolCallId);
+  if (t) return t;
+  const el = document.createElement("details"); // collapsed by default; unfold for full args + result
+  el.className = "tool";
+  el.innerHTML = `<summary><span class="name">🔧 ${name}</span><span class="summary-hint"></span></summary>`
+    + `<pre class="args"></pre>`;
+  timeline.appendChild(el);
+  t = { el, argsEl: el.querySelector(".args"), hintEl: el.querySelector(".summary-hint"), resultEl: null, buf: "" };
+  tools.set(toolCallId, t);
+  scroll();
+  return t;
+}
+
+// A concise one-line descriptor for the collapsed summary (the useful bit).
+function toolHint(args){
+  if (!args || typeof args !== "object") return "";
+  const key = ["file_path","path","command","pattern","query","url"].find(k => args[k] != null);
+  if (!key) return "";
+  const v = String(args[key]).replace(/\s+/g, " ").trim();
+  return v.length > 64 ? v.slice(0, 61) + "…" : v;
+}
+
+function scroll(){ timeline.scrollTop = timeline.scrollHeight; }
+
+function setComposerEnabled(on){
+  $("prompt").disabled = !on;
+  $("send").disabled = !on;
+  $("send").textContent = on ? "Send" : "Working…";
+  if (on) $("prompt").focus();
+}
+function clearPending(){ if (pendingEl){ pendingEl.remove(); pendingEl = null; } }
+
+function handle(ev){
+  switch (ev.type){
+    case "RUN_STARTED":
+      $("sid").textContent = ev.threadId ? ev.threadId.slice(0,14) : sessionId.slice(0,14);
+      setStatus("running");
+      if (pendingEl) pendingEl.innerHTML = `<span class="dot"></span> Claude is working…`;
+      break;
+    case "STATE_SNAPSHOT":
+      if (ev.snapshot){ $("model").textContent = ev.snapshot.model ?? "—";
+        note(`state: model=${ev.snapshot.model}, tools=[${(ev.snapshot.tools||[]).join(", ")}]`); }
+      break;
+    case "TEXT_MESSAGE_START": clearPending(); messageBubble(ev.messageId, ev.role || "assistant"); break;
+    case "TEXT_MESSAGE_CONTENT": { const m = messageBubble(ev.messageId, "assistant"); m.buf += ev.delta; m.body.textContent = m.buf; scroll(); break; }
+    case "TEXT_MESSAGE_END": break;
+    case "TOOL_CALL_START": clearPending(); toolCard(ev.toolCallId, ev.toolCallName); break;
+    case "TOOL_CALL_ARGS": { const t = toolCard(ev.toolCallId, "?"); t.buf += ev.delta; t.argsEl.textContent = t.buf; scroll(); break; }
+    case "TOOL_CALL_END": { const t = tools.get(ev.toolCallId); if (t){ try { const a = JSON.parse(t.buf); t.argsEl.textContent = JSON.stringify(a, null, 2); if (t.hintEl) t.hintEl.textContent = toolHint(a); } catch(_){} } break; }
+    case "TOOL_CALL_RESULT": {
+      const t = tools.get(ev.toolCallId); if (!t) break;
+      if (!t.resultEl){ t.resultEl = document.createElement("div"); t.resultEl.className = "result"; t.el.appendChild(t.resultEl); }
+      t.resultEl.textContent = "→ " + ev.content;
+      t.el.classList.add("done"); // ✓ on the summary
+      scroll(); break;
+    }
+    case "CUSTOM": note(`custom(${ev.name}): ${JSON.stringify(ev.value)}`); break;
+    case "RUN_FINISHED": { clearPending(); setStatus("finished"); setComposerEnabled(true); const d=document.createElement("div"); d.className="final"; d.textContent="✓ finished"; d.title = ev.result ?? ""; timeline.appendChild(d); scroll(); break; }
+    case "RUN_ERROR": { clearPending(); setStatus("errored"); setComposerEnabled(true); note(`✗ error: ${ev.message} (${ev.code||""})`); break; }
+    // REASONING_* intentionally not rendered (off by default in the translator)
+  }
+}
+
+function note(text){ const d=document.createElement("div"); d.className="notice"; d.textContent=text; timeline.appendChild(d); scroll(); }
+
+function logRaw(seq, ev){ const d=document.createElement("div"); d.innerHTML=`<span class="seq">#${seq ?? "?"}</span> ${ev.type}`; d.title=JSON.stringify(ev,null,2); rawlog.prepend(d); }
+
+function connect(fromSeq){
+  if (es) es.close();
+  const q = fromSeq != null ? `?lastEventId=${fromSeq}` : "";
+  es = new EventSource(`/sessions/${sessionId}/events${q}`);
+  es.onopen = () => setConn("connected");
+  es.onerror = () => setConn("reconnecting…"); // browser auto-reconnects w/ Last-Event-ID header
+  es.onmessage = (e) => {
+    lastEventId = e.lastEventId || lastEventId;
+    $("lei").textContent = lastEventId ?? "—";
+    const ev = JSON.parse(e.data);
+    handle(ev);
+    logRaw(e.lastEventId, ev);
+  };
+}
+
+$("composer").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const prompt = $("prompt").value.trim();
+  if (!prompt) return;
+  timeline.innerHTML = ""; rawlog.innerHTML = ""; messages.clear(); tools.clear(); lastEventId = null;
+
+  // Echo the prompt as a user bubble, clear + lock the composer, show a waiting hint.
+  messageBubble("user-input", "user").body.textContent = prompt;
+  $("prompt").value = "";
+  setComposerEnabled(false);
+  setStatus("starting");
+  pendingEl = document.createElement("div");
+  pendingEl.className = "pending";
+  pendingEl.innerHTML = `<span class="dot"></span> starting Claude… (spawning; first tokens can take a few seconds)`;
+  timeline.appendChild(pendingEl); scroll();
+
+  try {
+    const res = await fetch("/sessions", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt }),
+    });
+    if (!res.ok){ clearPending(); note("failed to start session: " + await res.text()); setComposerEnabled(true); return; }
+    ({ sessionId } = await res.json());
+    $("sid").textContent = sessionId.slice(0, 14);
+    connect(null);
+  } catch (err){
+    clearPending(); note("request failed: " + err.message); setComposerEnabled(true);
+  }
+});
+
+$("disconnect").addEventListener("click", () => { if (es){ es.close(); setConn("disconnected"); } });
+$("reconnect").addEventListener("click", () => { if (sessionId) connect(lastEventId != null ? Number(lastEventId) : -1); });
+</script>
+</body>
+</html>

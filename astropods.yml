@@ -1,0 +1,74 @@
+# yaml-language-server: $schema=https://astropods.ai/schema/package.json
+spec: package/v1
+name: ada
+
+agent:
+  build:
+    context: .
+    dockerfile: Dockerfile
+  interfaces:
+    # Serves the built-in AG-UI client + the SSE/HTTP API publicly from the
+    # container's port 80. Any AG-UI client (CopilotKit, custom) can also point
+    # at {ASTRO_EXTERNAL_AGENT_URL}/sessions/... directly.
+    frontend: true
+    # Also deploy the platform's messaging sidecar (chat UI / Slack). The sidecar
+    # runs the channel adapters, normalizes every inbound message to one shape,
+    # and streams it to us over gRPC (GRPC_SERVER_ADDR). src/messaging/adapter.ts
+    # (a Claude Code AgentAdapter) + adapter-core `serve()` handle our side, so a
+    # Slack thread becomes a continuous Claude Code conversation. Slack itself is
+    # platform-managed (its app + workspace linking + user identity live in
+    # astro-server) — this agent needs NO Slack tokens. frontend + messaging
+    # coexist: our UI on its hostname, Slack/web on the sidecar's routes.
+    messaging: true
+  # Route model calls through the Astro AI Gateway instead of a personal key.
+  # Injects ASTRO_GATEWAY_URL + ASTRO_GATEWAY_API_KEY (virtual key). config/model.ts
+  # maps these to ANTHROPIC_BASE_URL + ANTHROPIC_AUTH_TOKEN, so Claude Code hits
+  # the gateway's LiteLLM /v1/messages endpoint (→ Bedrock). VALIDATED: streaming,
+  # tool_use, and adaptive thinking all work; per-key spend tracked by the gateway.
+  # No `models:` block => no personal ANTHROPIC_API_KEY needed.
+  # (To revert to a direct key: astro_ai_gateway: false + re-add the models block.)
+  # NB the model id must be a gateway model_name (claude-opus-4-8), not a dated id.
+  # NB Bedrock lacks Anthropic server tools (web_search/web_fetch) — don't allow them.
+  astro_ai_gateway: true
+
+inputs:
+  # GitHub App (user-to-server OAuth). Each user connects their own GitHub via
+  # the agent's frontend (authorization-code flow) — no static token in the
+  # container. Register a GitHub App: set its callback to
+  # ${ASTRO_EXTERNAL_AGENT_URL}/auth/github/callback, enable "Expire user
+  # authorization tokens" (issues refresh tokens), and grant the permissions the
+  # agent needs (Contents: Read/Write, Pull requests: Write). Only the OAuth
+  # client id/secret are needed for the user-to-server flow (the App private key
+  # is for installation tokens, which we don't use).
+  GITHUB_APP_CLIENT_ID:
+    name: GITHUB_APP_CLIENT_ID
+    datatype: string
+    description: "GitHub App OAuth client id"
+    display-as: short-text
+  GITHUB_APP_CLIENT_SECRET:
+    name: GITHUB_APP_CLIENT_SECRET
+    datatype: string
+    secret: true
+    description: "GitHub App OAuth client secret"
+    display-as: short-text
+
+knowledge:
+  # Durable store for per-user GitHub OAuth tokens (access + refresh + expiry)
+  # and other per-interaction state. Platform-managed Postgres injects
+  # POSTGRES_HOST/PORT/USER/PASSWORD/DB. (If provider-mode injection misbehaves,
+  # fall back to container mode — see the migrate-to-astropods notes.)
+  db:
+    provider: postgres
+
+dev:
+  # Optional local hot-reload path (`ast dev`), NOT the cloud/container path.
+  # Runs on the host, so it needs `claude` on the host PATH. Binds :8080.
+  command: node --watch src/index.ts
+  interfaces:
+    frontend:
+      port: 8080
+    # Local playground adapters for `ast dev`. `web` = built-in chat UI; add
+    # `slack` to exercise the Slack channel locally. (Deploy-time Slack is
+    # governed by agent.interfaces.messaging + platform Slack config, not this.)
+    messaging:
+      adapters: [web, slack]

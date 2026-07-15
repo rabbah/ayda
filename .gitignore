@@ -1,0 +1,26 @@
+# dependencies
+node_modules/
+
+# Astro CLI local state (can hold credentials from `ast configure`)
+.ast/
+
+# env / secrets — never commit
+.env
+.env.*
+*.local
+*.key
+*.pem
+
+# build output
+dist/
+build/
+
+# logs
+*.log
+npm-debug.log*
+
+# OS / editor
+.DS_Store
+*.swp
+.idea/
+.vscode/

@@ -1,0 +1,35 @@
+{
+  "name": "ada",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Supervises a headless `claude -p` session and re-emits its stream-json output as AG-UI events over SSE.",
+  "engines": {
+    "node": ">=23"
+  },
+  "scripts": {
+    "demo": "node scripts/demo-translate.ts",
+    "demo:sse": "node scripts/demo-translate.ts --sse",
+    "start": "node src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@astropods/adapter-claude-agent-sdk": "^0.5.2",
+    "@astropods/adapter-core": "latest",
+    "@opentelemetry/api": "^1.9.0",
+    "pg": "^8.13.0",
+    "@opentelemetry/sdk-node": "0.217.0",
+    "@opentelemetry/exporter-trace-otlp-proto": "0.217.0",
+    "@opentelemetry/exporter-metrics-otlp-proto": "0.217.0",
+    "@opentelemetry/sdk-metrics": "^2.0.0"
+  },
+  "devDependencies": {
+    "@ag-ui/core": "^0.0.42",
+    "typescript": "^5.7.0"
+  },
+  "comments": {
+    "runtime": "Node >=23 runs the .ts sources natively (type stripping). The demo needs NO deps.",
+    "@ag-ui/core": "PINNED reference for validating emitted AG-UI events against the canonical Zod schemas in CI. Local types in src/types/agui.ts mirror it.",
+    "@opentelemetry/api": "Optional at runtime — telemetry degrades to no-op if absent. The OTLP SDK/exporter is provided out-of-process by the astropods telemetry adapter."
+  }
+}
