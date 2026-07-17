@@ -26,7 +26,7 @@ export interface ResolvedModel {
  */
 export function resolveModel(env: NodeJS.ProcessEnv = process.env): ResolvedModel {
   const provider = env.ASTROPOD_MODEL_PROVIDER ?? "anthropic";
-  const id = env.ANTHROPIC_MODEL ?? "claude-opus-4-8";
+  const id = env.ANTHROPIC_MODEL ?? "claude-opus-4-6";
   return { id, provider };
 }
 
@@ -50,15 +50,13 @@ export function claudeSpawnEnv(
   // (claude-opus-4-8 / claude-sonnet-4-6 / claude-haiku-4-5), NOT a dated id.
   // (`drop_params: true` on the gateway may silently drop Bedrock-unsupported
   // fields — validate thinking/tool-use over a real gateway; see README.)
-  const astroGatewayUrl = env.ASTRO_GATEWAY_URL;
+  const astroGatewayUrl = `${env.ASTRO_GATEWAY_URL}/anthropic`;
   const baseUrl = env.ANTHROPIC_BASE_URL ?? astroGatewayUrl;
   const authToken = env.ANTHROPIC_AUTH_TOKEN ?? (astroGatewayUrl ? env.ASTRO_GATEWAY_API_KEY : undefined);
   const apiKey = env.ANTHROPIC_API_KEY;
 
   if (baseUrl) {
-    // In gateway mode the credential is ALWAYS sent as a Bearer token (LiteLLM
-    // virtual key). Never x-api-key — the gateway rejects that with "Malformed
-    // API Key … Ensure Key has `Bearer ` prefix". `||` so empty strings fall through.
+    // `||` so empty strings fall through to the next credential source.
     const token = authToken || apiKey;
     if (!token) {
       throw new Error(
@@ -66,8 +64,18 @@ export function claudeSpawnEnv(
       );
     }
     const childEnv: NodeJS.ProcessEnv = { ...env, ANTHROPIC_BASE_URL: baseUrl, ANTHROPIC_MODEL: model.id };
-    childEnv.ANTHROPIC_AUTH_TOKEN = token; // Authorization: Bearer
-    delete childEnv.ANTHROPIC_API_KEY; // never send x-api-key to the gateway
+    childEnv.ANTHROPIC_AUTH_TOKEN = token; // Authorization: Bearer (so the SDK has a credential)
+    delete childEnv.ANTHROPIC_API_KEY; // never send x-api-key
+    // The Astro gateway is Bifrost, which reads the virtual key ONLY from the
+    // `x-bf-vk` header — it ignores Authorization/x-api-key (probed: both return
+    // "virtual key is required"; x-bf-vk returns "virtual key not found" for a
+    // bad value, i.e. it's the header actually read). Claude Code sends the
+    // credential as Authorization: Bearer, so also surface it as x-bf-vk via
+    // ANTHROPIC_CUSTOM_HEADERS, which the SDK-spawned child applies to every
+    // request. Only for the Astro gateway path, not an explicit ANTHROPIC_BASE_URL.
+    if (!env.ANTHROPIC_BASE_URL && env.ASTRO_GATEWAY_URL) {
+      childEnv.ANTHROPIC_CUSTOM_HEADERS = `x-bf-vk: ${token}`;
+    }
     // The gateway is Bedrock-backed. Claude Code otherwise sends first-party-only
     // pre-release `anthropic-beta` flags (e.g. context-management, advanced-tool-use)
     // that Bedrock rejects with `400 invalid beta flag`. Anthropic's gateway
