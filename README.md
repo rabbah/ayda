@@ -38,7 +38,7 @@ Prerequisites on your machine: the `claude` CLI on `PATH`, and
 
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...        # never logged; only passed to the child
-node src/index.ts                          # -> http://localhost:8080
+node agent/index.ts                          # -> http://localhost:8080
 ```
 
 Open `http://localhost:8080/`, type a prompt (e.g. "read package.json and tell
@@ -79,7 +79,7 @@ Key facts:
   `ANTHROPIC_API_KEY` (no interactive onboarding/TTY). This is the main
   unknown for the containerized path.
 
-`dev.command` (`node --watch src/index.ts`, port 8080) is the optional local
+`dev.command` (`node --watch agent/index.ts`, port 8080) is the optional local
 `ast dev` path — runs on the host, so it needs `claude` on the host PATH.
 
 ## Architecture
@@ -103,16 +103,16 @@ subscribe independently, so what the client sees can't drift from what's billed.
 
 | Module | Responsibility |
 |---|---|
-| `src/config/model.ts` | **Isolated swap seam.** Model resolution from env/astropod.yaml, spawn-env (direct to Anthropic, no base URL), pricing table + cost. Gateway routing later changes *only this file*. |
-| `src/claude/agent.ts` | **Default source.** Runs the Claude Agent SDK `query()` with the `claude_code` system-prompt preset; yields typed messages (same envelopes as stream-json) → same Translator. The SDK spawns the `claude` binary (so it must be in the image); observability is Claude Code's native OTel. |
-| `src/claude/supervisor.ts` | Alternative source: spawns `claude -p` directly and parses NDJSON. Kept as a fallback; same event interface as the SDK source. |
-| `src/translate/translator.ts` | Pure stream-json/SDK-message → AG-UI mapping. Stateful per run. |
-| `src/session/registry.ts` | Per-session AG-UI event log with monotonic seq → lossless reconnect. Decoupled from transport. |
-| `src/transport/sse.ts` | AG-UI SSE framing + `Last-Event-ID` replay. |
-| `src/transport/transport.ts` | Inbound prompt transport interface + HTTP/MQ stubs. |
-| `src/telemetry/otel.ts` | OTel GenAI-semconv traces + metrics; cost. No-op without `@opentelemetry/api`. |
-| `src/persistence/results.ts` | Persist final `result` (cost, usage, turns) for billing/observability. |
-| `src/index.ts` | HTTP wiring skeleton. |
+| `agent/config/model.ts` | **Isolated swap seam.** Model resolution from env/astropod.yaml, spawn-env (direct to Anthropic, no base URL), pricing table + cost. Gateway routing later changes *only this file*. |
+| `agent/claude/agent.ts` | **Default source.** Runs the Claude Agent SDK `query()` with the `claude_code` system-prompt preset; yields typed messages (same envelopes as stream-json) → same Translator. The SDK spawns the `claude` binary (so it must be in the image); observability is Claude Code's native OTel. |
+| `agent/claude/supervisor.ts` | Alternative source: spawns `claude -p` directly and parses NDJSON. Kept as a fallback; same event interface as the SDK source. |
+| `agent/translate/translator.ts` | Pure stream-json/SDK-message → AG-UI mapping. Stateful per run. |
+| `agent/session/registry.ts` | Per-session AG-UI event log with monotonic seq → lossless reconnect. Decoupled from transport. |
+| `agent/transport/sse.ts` | AG-UI SSE framing + `Last-Event-ID` replay. |
+| `agent/transport/transport.ts` | Inbound prompt transport interface + HTTP/MQ stubs. |
+| `agent/telemetry/otel.ts` | OTel GenAI-semconv traces + metrics; cost. No-op without `@opentelemetry/api`. |
+| `agent/persistence/results.ts` | Persist final `result` (cost, usage, turns) for billing/observability. |
+| `agent/index.ts` | HTTP wiring skeleton. |
 
 ## stream-json → AG-UI mapping
 
@@ -222,7 +222,7 @@ pricing-table fallback. Self-telemetry OTel dep versions mirror the proven
    `outcome: null`). We omit it for legacy-safety — revisit when we pin ≥ a
    version where it's expected.
 9. **Validate against the canonical Zod schemas.** Local types in
-   `src/types/agui.ts` mirror `@ag-ui/core`; add a CI step that parses emitted
+   `agent/types/agui.ts` mirror `@ag-ui/core`; add a CI step that parses emitted
    events with the pinned package's schemas so drift fails the build.
 
 ### Bridge-specific extension (document for frontends)

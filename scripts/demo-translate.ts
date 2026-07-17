@@ -12,11 +12,11 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { Translator } from "../src/translate/translator.ts";
-import { SessionRegistry } from "../src/session/registry.ts";
-import { sseFrame } from "../src/transport/sse.ts";
-import { computeCostUsd } from "../src/config/model.ts";
-import type { StreamJsonEvent, ResultEvent } from "../src/types/streamjson.ts";
+import { Translator } from "../agent/translate/translator.ts";
+import { SessionRegistry } from "../agent/session/registry.ts";
+import { sseFrame } from "../agent/transport/sse.ts";
+import { computeCostUsd } from "../agent/config/model.ts";
+import type { StreamJsonEvent, ResultEvent } from "../agent/types/streamjson.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixturePath = join(here, "..", "fixtures", "read-edit-report.streamjson.jsonl");

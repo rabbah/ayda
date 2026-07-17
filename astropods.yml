@@ -13,7 +13,7 @@ agent:
     frontend: true
     # Also deploy the platform's messaging sidecar (chat UI / Slack). The sidecar
     # runs the channel adapters, normalizes every inbound message to one shape,
-    # and streams it to us over gRPC (GRPC_SERVER_ADDR). src/messaging/adapter.ts
+    # and streams it to us over gRPC (GRPC_SERVER_ADDR). agent/messaging/adapter.ts
     # (a Claude Code AgentAdapter) + adapter-core `serve()` handle our side, so a
     # Slack thread becomes a continuous Claude Code conversation. Slack itself is
     # platform-managed (its app + workspace linking + user identity live in
@@ -23,12 +23,7 @@ agent:
   # Route model calls through the Astro AI Gateway instead of a personal key.
   # Injects ASTRO_GATEWAY_URL + ASTRO_GATEWAY_API_KEY (virtual key). config/model.ts
   # maps these to ANTHROPIC_BASE_URL + ANTHROPIC_AUTH_TOKEN, so Claude Code hits
-  # the gateway's LiteLLM /v1/messages endpoint (→ Bedrock). VALIDATED: streaming,
-  # tool_use, and adaptive thinking all work; per-key spend tracked by the gateway.
-  # No `models:` block => no personal ANTHROPIC_API_KEY needed.
-  # (To revert to a direct key: astro_ai_gateway: false + re-add the models block.)
-  # NB the model id must be a gateway model_name (claude-opus-4-8), not a dated id.
-  # NB Bedrock lacks Anthropic server tools (web_search/web_fetch) — don't allow them.
+  # the gateway's /v1/messages endpoint (→ Bedrock).
   astro_ai_gateway: true
 
 inputs:
@@ -56,9 +51,10 @@ knowledge:
     provider: postgres
 
 dev:
-  # Optional local hot-reload path (`ast dev`), NOT the cloud/container path.
-  # Runs on the host, so it needs `claude` on the host PATH. Binds :8080.
-  command: node --watch src/index.ts
+  # Local hot-reload path (`ast dev` / `ast project`): runs the agent in a
+  # container that bind-mounts the `agent/` source dir, so edits reload live via
+  # node --watch. (Source lives in agent/ so it lands under the mounted path.)
+  command: node --watch agent/index.ts
   interfaces:
     frontend:
       port: 8080

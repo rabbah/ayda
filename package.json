@@ -10,7 +10,7 @@
   "scripts": {
     "demo": "node scripts/demo-translate.ts",
     "demo:sse": "node scripts/demo-translate.ts --sse",
-    "start": "node src/index.ts",
+    "start": "node agent/index.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -29,7 +29,7 @@
   },
   "comments": {
     "runtime": "Node >=23 runs the .ts sources natively (type stripping). The demo needs NO deps.",
-    "@ag-ui/core": "PINNED reference for validating emitted AG-UI events against the canonical Zod schemas in CI. Local types in src/types/agui.ts mirror it.",
+    "@ag-ui/core": "PINNED reference for validating emitted AG-UI events against the canonical Zod schemas in CI. Local types in agent/types/agui.ts mirror it.",
     "@opentelemetry/api": "Optional at runtime — telemetry degrades to no-op if absent. The OTLP SDK/exporter is provided out-of-process by the astropods telemetry adapter."
   }
 }

@@ -16,7 +16,7 @@
  * Exporter is OTLP/proto (matches the proven setup in sibling repos). Versions
  * mirror the repos' 0.217.0 train — reconcile at build if the platform bumps.
  *
- * Dynamic imports + guards so `node src/index.ts` still runs locally without the
+ * Dynamic imports + guards so `node agent/index.ts` still runs locally without the
  * OTel deps installed (telemetry silently no-ops), matching the demo's design.
  */
 

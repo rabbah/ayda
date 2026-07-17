@@ -26,7 +26,7 @@ export interface ResolvedModel {
  */
 export function resolveModel(env: NodeJS.ProcessEnv = process.env): ResolvedModel {
   const provider = env.ASTROPOD_MODEL_PROVIDER ?? "anthropic";
-  const id = env.ANTHROPIC_MODEL ?? "claude-opus-4-6";
+  const id = env.ANTHROPIC_MODEL ?? "claude-opus-4-8";
   return { id, provider };
 }
 
@@ -41,8 +41,8 @@ export function claudeSpawnEnv(
   env: NodeJS.ProcessEnv = process.env,
 ): NodeJS.ProcessEnv {
   // Precedence: explicit ANTHROPIC_BASE_URL > Astro managed gateway (ASTRO_GATEWAY_*) > direct key.
-  //
-  // Astro's gateway is a LiteLLM proxy whose `/v1/messages` endpoint accepts
+  
+  // Astro's gateway is a Bifrost proxy whose `/anthropic` endpoint accepts
   // native Anthropic requests and routes them to its Bedrock model_list — so
   // Claude Code can use the gateway base URL directly (it appends /v1/messages).
   // No personal Anthropic key; the tenant virtual key authenticates and drives
@@ -102,7 +102,7 @@ export function describeAuth(env: NodeJS.ProcessEnv = process.env): string {
   if (gateway) {
     const tok = env.ANTHROPIC_AUTH_TOKEN ?? env.ASTRO_GATEWAY_API_KEY ?? env.ANTHROPIC_API_KEY;
     const tokDesc = tok ? `set (****${tok.slice(-4)})` : "MISSING";
-    return `provider=${m.provider} model=${m.id} gateway=${gateway}/v1/messages auth=${tokDesc}`;
+    return `provider=${m.provider} model=${m.id} gateway=${gateway} auth=${tokDesc}`;
   }
   const k = env.ANTHROPIC_API_KEY;
   const src = k ? `set (${k.length} chars, ****${k.slice(-4)})` : "MISSING";

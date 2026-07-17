@@ -40,7 +40,7 @@ ENV NODE_ENV=production \
 COPY package.json ./
 RUN npm install --omit=dev --no-audit --no-fund
 
-COPY src ./src
+COPY agent ./agent
 COPY public ./public
 
 # agent.interfaces.frontend => the container MUST listen on port 80. We run as
@@ -48,4 +48,4 @@ COPY public ./public
 # runs fine as root; permissions are constrained via --permission-mode +
 # --allowedTools in the supervisor.
 EXPOSE 80
-CMD ["node", "src/index.ts"]
+CMD ["node", "agent/index.ts"]

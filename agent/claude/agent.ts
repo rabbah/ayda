@@ -109,14 +109,26 @@ export class ClaudeAgentSession extends EventEmitter<Events> {
         ...claudeSpawnEnv(this.opts.model),
         ...(this.opts.githubToken ? { GH_TOKEN: this.opts.githubToken } : {}),
       },
+      // DEBUG: capture the CLI's stderr — gateway/API failures (Bifrost "model
+      // not found", 4xx, auth) print here and don't always reach the result event.
+      stderr: (data: unknown) =>
+        console.error(`[claude:stderr] ${typeof data === "string" ? data : JSON.stringify(data)}`),
     };
 
     const q = query({ prompt, options });
     this.q = q;
+    console.error(`[claude:run] starting model=${this.opts.model.id}`);
     // SDK messages mirror the CLI stream-json envelopes; the cast bridges the
     // SDK's typed union to ours so the Translator/telemetry consume them as-is.
     for await (const message of q) {
-      this.emit("event", message as StreamJsonEvent);
+      const ev = message as StreamJsonEvent;
+      // DEBUG: dump result / system / error-bearing events in full so a failed
+      // run reveals its real cause instead of the generic "Claude Code run failed".
+      const t = (ev as { type?: string }).type;
+      if (t === "result" || t === "system" || (ev as { is_error?: boolean }).is_error) {
+        console.error(`[claude:event ${t}] ${JSON.stringify(ev)}`);
+      }
+      this.emit("event", ev);
     }
     this.emit("exit", 0);
   }

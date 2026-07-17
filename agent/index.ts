@@ -289,7 +289,7 @@ async function setupCallback(url: URL, res: ServerResponse): Promise<void> {
  * Register a Claude Code AgentAdapter with the platform's messaging sidecar so
  * users can converse over Slack / web chat. The sidecar injects GRPC_SERVER_ADDR
  * only when `agent.interfaces.messaging: true` is deployed; outside that (local
- * `node src/index.ts`, or a frontend-only deploy) there is nothing to bind to,
+ * `node agent/index.ts`, or a frontend-only deploy) there is nothing to bind to,
  * so this is a no-op. `@astropods/adapter-core` and the adapter are imported
  * dynamically so the process runs without the package present.
  */
