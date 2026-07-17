@@ -199,7 +199,18 @@ async function githubLogin(req: IncomingMessage, res: ServerResponse, url: URL):
   }
   const state = randomUUID();
   pendingStates.set(state, userKey);
-  res.setHeader("Location", authorizeUrl(state));
+  // Route through the App INSTALLATION (repo picker + write grant), not the bare
+  // OAuth authorize. With `request_oauth_on_install` on the App, installing also
+  // authorizes, and GitHub redirects back to /auth/github/callback with `code`
+  // (+ installation_id). Fall back to OAuth authorize only when we lack the App
+  // slug (e.g. env-supplied creds) — that grants identity but no repo access.
+  const slug = getAppCreds()?.slug;
+  res.setHeader(
+    "Location",
+    slug
+      ? `https://github.com/apps/${slug}/installations/new?state=${encodeURIComponent(state)}`
+      : authorizeUrl(state),
+  );
   res.writeHead(302).end();
 }
 
@@ -215,6 +226,10 @@ async function githubCallback(url: URL, res: ServerResponse): Promise<void> {
   try {
     const rec = await exchangeCode(code);
     await store.putGithubToken(uid, rec);
+    const installationId = url.searchParams.get("installation_id");
+    console.log(
+      `[github] connected ${rec.githubLogin ?? "?"}${installationId ? ` (installation ${installationId})` : " — no installation_id; token has no repo access until the App is installed"}`,
+    );
     sendPage(res, 200, "GitHub connected", `Signed in as ${rec.githubLogin ?? "your account"}. You can return to your chat.`);
   } catch (e) {
     console.error(`[github] code exchange failed: ${(e as Error).message}`);

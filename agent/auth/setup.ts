@@ -93,6 +93,11 @@ export function buildManifest(secret: string, org?: string, env: NodeJS.ProcessE
     callback_urls: [`${base}/auth/github/callback`],
     setup_url: `${base}/`,
     public: false,
+    // Installing the App also runs the OAuth authorize in one flow, so a single
+    // install grants repo selection + write (contents/pull_requests) AND returns
+    // the user token via the callback. Without this, install and OAuth are separate.
+    request_oauth_on_install: true,
+    setup_on_update: true,
     default_permissions: {
       contents: "write",
       pull_requests: "write",

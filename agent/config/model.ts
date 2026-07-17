@@ -75,6 +75,15 @@ export function claudeSpawnEnv(
     // request. Only for the Astro gateway path, not an explicit ANTHROPIC_BASE_URL.
     if (!env.ANTHROPIC_BASE_URL && env.ASTRO_GATEWAY_URL) {
       childEnv.ANTHROPIC_CUSTOM_HEADERS = `x-bf-vk: ${token}`;
+      // Bifrost (Bedrock-backed) serves Claude under `bedrock/<short-name>` ids and
+      // the virtual key is scoped to those exact names. Verified: bare `claude-*`
+      // AND fully-qualified `bedrock/anthropic.claude-*` both 401 ("virtual key not
+      // found"); `bedrock/claude-opus-4-8` / `-sonnet-4-6` / `-haiku-4-5` return 200.
+      // So prefix the main model, and pin Claude Code's background tiers (it also
+      // calls a haiku/sonnet model) to served names. All overridable via env.
+      childEnv.ANTHROPIC_MODEL = model.id.startsWith("bedrock/") ? model.id : `bedrock/${model.id}`;
+      childEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL = env.ANTHROPIC_DEFAULT_HAIKU_MODEL ?? "bedrock/claude-haiku-4-5";
+      childEnv.ANTHROPIC_DEFAULT_SONNET_MODEL = env.ANTHROPIC_DEFAULT_SONNET_MODEL ?? "bedrock/claude-sonnet-4-6";
     }
     // The gateway is Bedrock-backed. Claude Code otherwise sends first-party-only
     // pre-release `anthropic-beta` flags (e.g. context-management, advanced-tool-use)

@@ -109,7 +109,7 @@ export class ClaudeCodeAdapter implements AgentAdapter {
         reply("GitHub isn't set up on this agent yet, so there's nothing to connect to.");
         return;
       }
-      reply(`Open this link and authorize to let me use your GitHub account (expires in 10 min):\n${buildConnectUrl(options.userId, secret)}`);
+      reply(`Open this link to install me on the repositories you want me to work with — you pick the repos, and it connects your GitHub in the same step (expires in 10 min):\n${buildConnectUrl(options.userId, secret)}`);
       return;
     }
     // setup — operator-only
@@ -163,7 +163,7 @@ export class ClaudeCodeAdapter implements AgentAdapter {
         if (settled) return;
         settled = true;
         if (hintUrl) {
-          hooks.onChunk(`\n\n---\n💡 Tip: connect your GitHub so I can act as you — ${hintUrl}`);
+          hooks.onChunk(`\n\n---\n💡 Tip: install me on your GitHub repos so I can read, push, and open PRs — ${hintUrl}`);
           void this.store.kvPut(HINT_NS, options.conversationId, "1");
         }
         hooks.onFinish();
