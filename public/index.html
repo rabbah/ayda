@@ -52,6 +52,19 @@
   #rawlog div { padding:3px 0; border-bottom:1px solid #14171d; word-break:break-all; }
   #rawlog .seq { color:var(--accent); }
   .toolbar { display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap; }
+  .chip-btn { cursor:pointer; font:inherit; }
+  .chip-btn:hover { border-color:var(--accent); color:var(--fg); }
+  #whoami-panel { position:fixed; top:52px; right:16px; z-index:10; width:min(360px,calc(100vw - 32px));
+    background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px 16px;
+    box-shadow:0 8px 28px rgba(0,0,0,.45); }
+  #whoami-panel h2 { margin:0 0 10px; }
+  #whoami-close { position:absolute; top:8px; right:8px; background:none; border:none; color:var(--muted);
+    cursor:pointer; font-size:14px; padding:2px 6px; }
+  #whoami-close:hover { color:var(--fg); }
+  #whoami-dl { margin:0; display:grid; grid-template-columns:auto 1fr; gap:6px 12px; }
+  #whoami-dl dt { color:var(--muted); }
+  #whoami-dl dd { margin:0; word-break:break-all; }
+  #whoami-dl dd.ok { color:var(--ok); } #whoami-dl dd.warn { color:#e6b455; }
 </style>
 </head>
 <body>
@@ -63,7 +76,14 @@
   <span class="chip">conn <b id="conn">—</b></span>
   <span class="chip">lastEventId <b id="lei">—</b></span>
   <span class="chip">github <b id="gh">—</b></span>
+  <button id="whoami-btn" class="chip chip-btn" title="Show my identity (like /whoami in chat)">whoami</button>
 </header>
+
+<div id="whoami-panel" hidden>
+  <button id="whoami-close" title="Close">✕</button>
+  <h2>Your identity</h2>
+  <dl id="whoami-dl"></dl>
+</div>
 
 <main>
   <section id="timeline"></section>
@@ -104,6 +124,33 @@ async function refreshGh(){
   } catch { $("gh").textContent = "?"; }
 }
 refreshGh();
+
+// Identity panel — the browser counterpart to chat's /whoami. Fetches the
+// resolved platform identity + GitHub state from /api/whoami and renders it.
+function row(dl, term, value, cls){
+  const dt = document.createElement("dt"); dt.textContent = term;
+  const dd = document.createElement("dd"); dd.textContent = value; if (cls) dd.classList.add(cls);
+  dl.appendChild(dt); dl.appendChild(dd);
+}
+async function showWhoami(){
+  const panel = $("whoami-panel"), dl = $("whoami-dl");
+  dl.innerHTML = "";
+  panel.hidden = false;
+  try {
+    const w = await (await fetch("/api/whoami")).json();
+    if (!w.allowed){ row(dl, "access", "denied by grants", "warn"); return; }
+    row(dl, "userId", w.userId || "anonymous (local/dev)", w.userId ? null : "warn");
+    if (w.email) row(dl, "email", w.email);
+    row(dl, "admin", w.admin ? "yes" : "no", w.admin ? "ok" : null);
+    row(dl, "github", w.github, w.githubConnected ? "ok" : "warn");
+  } catch { row(dl, "error", "could not load identity", "warn"); }
+}
+$("whoami-btn").addEventListener("click", () => {
+  const panel = $("whoami-panel");
+  if (panel.hidden) showWhoami(); else panel.hidden = true;
+});
+$("whoami-close").addEventListener("click", () => { $("whoami-panel").hidden = true; });
+
 const messages = new Map();  // messageId -> {el, buf}
 const tools = new Map();     // toolCallId -> {el, argsEl, resultEl, buf}
 
