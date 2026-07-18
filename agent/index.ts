@@ -9,11 +9,11 @@
  *   GET  /auth/github/status       -> { connected, login, configured }
  *   GET  /api/whoami               -> { userId, email, admin, github... } (browser /whoami)
  *   GET  /api/setup/status         -> { configured, appSlug }
- *   GET  /api/setup/github/start   -> manifest auto-POST page (setup-link gated)
+ *   GET  /api/setup/github/start   -> manifest auto-POST page (admin-email gated)
  *   GET  /api/setup/github/callback-> manifest-code exchange; stores App creds
  *
- * GitHub App provisioning is chat-driven: an admin (ADMIN_USER_IDS) runs
- * /setup-github in a DM, the adapter mints a signed setup link, and the two
+ * GitHub App provisioning is web-driven: an admin (ADMIN_EMAILS, matched against
+ * the ALB-verified email) clicks "Set up GitHub App" in the UI, and the two
  * routes above drive GitHub's App-Manifest flow to create the App (auth/setup.ts).
  * Resolved creds live in auth/app-config.ts (stored in the DB).
  *
@@ -203,8 +203,60 @@ function streamEvents(sessionId: string, lastSeq: number, req: IncomingMessage, 
   });
 }
 
-function serveStatic(req: IncomingMessage, res: ServerResponse): void {
+/**
+ * Themed 401 for a request the grants table denies — matches the app's dark
+ * theme (see public/index.html) so a blocked user gets a coherent "no access"
+ * page instead of the app shell or a bare error string.
+ */
+function render401(): string {
+  return `<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Access denied · Ayda</title>
+<style>
+  :root { --bg:#0f1115; --panel:#181b22; --line:#272b34; --fg:#e6e8ec; --muted:#8b93a1; --accent:#6ea8fe; --err:#ff6b6b; }
+  * { box-sizing:border-box; }
+  html,body { height:100%; margin:0; }
+  body { display:flex; align-items:center; justify-content:center; padding:24px;
+    font:14px/1.6 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    background:radial-gradient(1200px 600px at 50% -10%, #151b28 0%, var(--bg) 60%); color:var(--fg); }
+  .card { width:min(460px,100%); background:var(--panel); border:1px solid var(--line); border-radius:16px;
+    padding:36px 32px; text-align:center; box-shadow:0 20px 60px rgba(0,0,0,.5); }
+  .badge { width:64px; height:64px; margin:0 auto 20px; border-radius:16px; display:flex; align-items:center; justify-content:center;
+    background:rgba(255,107,107,.10); border:1px solid rgba(255,107,107,.35); color:var(--err); }
+  .code { font-size:12px; letter-spacing:.18em; text-transform:uppercase; color:var(--err); margin:0 0 10px; }
+  h1 { font-size:20px; margin:0 0 10px; font-weight:600; letter-spacing:.01em; }
+  p.msg { margin:0 auto; max-width:36ch; color:var(--muted); }
+  .hint { margin-top:22px; padding-top:18px; border-top:1px solid var(--line); font-size:12px; color:var(--muted); }
+  .hint b { color:var(--fg); font-weight:600; }
+</style>
+</head><body>
+  <main class="card">
+    <div class="badge">
+      <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <rect x="3" y="11" width="18" height="11" rx="2"></rect>
+        <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+      </svg>
+    </div>
+    <p class="code">401 · Access denied</p>
+    <h1>You don't have access</h1>
+    <p class="msg">Your account isn't authorized to use this agent. If you think this is a mistake, ask an administrator to grant you access.</p>
+    <div class="hint">Signed in but blocked? Access is controlled by the deployment's <b>grants</b>.</div>
+  </main>
+</body></html>`;
+}
+
+async function serveStatic(req: IncomingMessage, res: ServerResponse): Promise<void> {
   ensureUid(req, res); // establish client identity on first load
+  // Gate the UI itself: a request the grants table denies never sees the app
+  // shell — it gets the themed 401 instead. Local dev / anonymous-with-`anyone`
+  // resolve as allowed, so they still load normally.
+  const { allowed } = await resolveIdentity(req, res);
+  if (!allowed) {
+    res.writeHead(401, { "Content-Type": "text/html; charset=utf-8" }).end(render401());
+    return;
+  }
   try {
     const html = readFileSync(join(PUBLIC_DIR, "index.html"), "utf8");
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }).end(html);
@@ -234,7 +286,16 @@ async function githubLogin(req: IncomingMessage, res: ServerResponse, url: URL):
     }
     userKey = bound;
   } else {
-    userKey = ensureUid(req, res);
+    // Browser-initiated connect (the frontend "Connect GitHub" button). The ALB
+    // already authenticated the user, so resolve their platform identity and key
+    // the token by it — the same key status/whoami/chat read (PR #1). No signed
+    // link is needed here; the ALB is the gate. Falls back to the cookie in dev.
+    const id = await resolveIdentity(req, res);
+    if (!id.allowed) {
+      res.writeHead(403).end("forbidden");
+      return;
+    }
+    userKey = id.userKey;
   }
   const state = randomUUID();
   pendingStates.set(state, userKey);
@@ -308,17 +369,17 @@ async function whoami(req: IncomingMessage, res: ServerResponse): Promise<void> 
     ? "not set up on this agent"
     : rec
       ? `connected as ${rec.githubLogin ?? "your account"}`
-      : "not connected (run /connect-github in chat)";
+      : "not connected (use Connect GitHub)";
   res.writeHead(200, { "Content-Type": "application/json" }).end(
     JSON.stringify({
       allowed,
       userId, // resolved platform user id (null when anonymous / local dev)
       email: email || null,
-      admin: userId ? isAdmin(userId) : false,
+      admin: isAdmin(email), // admin is keyed on the verified email (ADMIN_EMAILS)
       githubConfigured: githubConfigured(),
       githubConnected: Boolean(rec),
       githubLogin: rec?.githubLogin ?? null,
-      github, // human-readable summary, mirrors the chat /whoami line
+      github, // human-readable summary
     }),
   );
 }
@@ -326,18 +387,19 @@ async function whoami(req: IncomingMessage, res: ServerResponse): Promise<void> 
 /* ---------------- GitHub App setup (App-Manifest) routes ---------------- */
 
 /**
- * GET /api/setup/github/start?link=<t>[&org=<o>] — the admin lands here from
- * the setup link the chat adapter minted (after its isAdmin check). The signed,
- * kind-bound link is the sole gate on this endpoint; we then render a page that
- * POSTs the manifest to GitHub. No SETUP_TOKEN — authorization already happened
- * in chat.
+ * GET /api/setup/github/start?link=<t>[&org=<o>] — starts App provisioning.
+ * Admin-only, via the frontend "Set up GitHub App" button. Authorization is by
+ * verified email (ADMIN_EMAILS) resolved from the ALB identity — the only surface
+ * with an email, so setup is web-only. Then renders a page that POSTs the
+ * manifest to GitHub. No SETUP_TOKEN, no signed link.
  */
-async function setupStart(url: URL, res: ServerResponse): Promise<void> {
-  const secret = await getServerSecret(store);
-  if (!verifyLink(url.searchParams.get("link"), "setup", secret)) {
-    sendPage(res, 400, "Invalid setup link", "This setup link is invalid or expired. Run /setup-github again to get a fresh one.");
+async function setupStart(req: IncomingMessage, url: URL, res: ServerResponse): Promise<void> {
+  const { allowed, email } = await resolveIdentity(req, res);
+  if (!allowed || !isAdmin(email)) {
+    sendPage(res, 403, "Not authorized", "Setting up the GitHub App requires an admin (ADMIN_EMAILS).");
     return;
   }
+  const secret = await getServerSecret(store);
   const org = url.searchParams.get("org") || undefined;
   const { manifest, manifestUrl } = buildManifest(secret, org);
   res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }).end(renderManifestForm(manifest, manifestUrl));
@@ -415,7 +477,8 @@ async function main(): Promise<void> {
     const url = new URL(req.url ?? "/", `http://localhost:${PORT}`);
 
     if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/index.html")) {
-      return serveStatic(req, res);
+      void serveStatic(req, res);
+      return;
     }
     if (req.method === "GET" && url.pathname === "/auth/github/login") {
       void githubLogin(req, res, url);
@@ -443,7 +506,7 @@ async function main(): Promise<void> {
       return;
     }
     if (req.method === "GET" && url.pathname === "/api/setup/github/start") {
-      void setupStart(url, res);
+      void setupStart(req, url, res);
       return;
     }
     if (req.method === "GET" && url.pathname === "/api/setup/github/callback") {

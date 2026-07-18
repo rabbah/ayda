@@ -46,9 +46,10 @@ baked into the container.
 - **Connect** — a user runs `/connect-github` in a DM; Ayda replies with a link
   to authorize. Their token is stored per-user and injected as `GH_TOKEN`, so
   `git` and `gh` inside the Claude session act as them.
-- **Set up** — an admin (listed in `ADMIN_USER_IDS`) runs `/setup-github` once
-  to provision the GitHub App through GitHub's App-Manifest flow. No manual App
-  registration, no client id/secret to copy.
+- **Set up** — an admin (whose verified email is listed in `ADMIN_EMAILS`) opens
+  the web UI and clicks **Set up GitHub App** to provision the App through
+  GitHub's App-Manifest flow. No manual App registration, no client id/secret to
+  copy. (Setup is web-only: admin is verified by email, which chat doesn't carry.)
 
 ## Limitations
 

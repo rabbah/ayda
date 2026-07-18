@@ -1,19 +1,15 @@
 /**
- * GitHub App provisioning via GitHub's App-Manifest flow — chat-driven.
+ * GitHub App provisioning via GitHub's App-Manifest flow — web-driven.
  *
- * An admin runs `/setup-github` in a DM (see messaging/adapter.ts); the adapter
- * checks isAdmin() and hands back a signed setup link (auth/connect.ts). Opening
- * it hits GET /api/setup/github/start, which renders a page that POSTs a
- * pre-filled manifest to GitHub. GitHub creates the App and redirects to
+ * An admin opens the web UI and clicks "Set up GitHub App", which hits GET
+ * /api/setup/github/start. That endpoint renders a page that POSTs a pre-filled
+ * manifest to GitHub; GitHub creates the App and redirects to
  * /api/setup/github/callback with a code we exchange for the App's credentials.
  *
- * Access control: authorization happens in chat (isAdmin on the sidecar userId)
- * before a setup link is ever minted. The browser hops are then protected by
- * signatures keyed on the auto-generated server secret (auth/connect.ts):
- *   - the setup link is a kind-bound token (verifyLink(…, "setup", …)), so a
- *     per-user connect link can't be replayed to provision the App;
- *   - the manifest round-trip carries an HMAC-signed `state` (signState /
- *     verifyState) so the callback can't be driven without a real start.
+ * Access control: authorization is by verified email (isAdmin / ADMIN_EMAILS)
+ * resolved from the ALB identity — chat can't do this (it has no email). The
+ * manifest round-trip carries an HMAC-signed `state` (signState / verifyState)
+ * so the callback can't be driven without a real start.
  */
 
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
@@ -21,13 +17,21 @@ import type { GithubAppCreds } from "./app-config.ts";
 
 const STATE_TTL_MS = 15 * 60 * 1000; // allows for time spent on GitHub's create screen
 
-/** Whether a messaging userId is allowed to provision the App (ADMIN_USER_IDS). */
-export function isAdmin(userId: string, env: NodeJS.ProcessEnv = process.env): boolean {
-  const list = (env.ADMIN_USER_IDS ?? "")
+/**
+ * Whether a verified email is allowed to provision the App (ADMIN_EMAILS).
+ * Email is the admin key because it's the only human-knowable identity the
+ * platform gives us — the opaque platform user id isn't something a deployer can
+ * put in config ahead of time. Comparison is case-insensitive. Only the web
+ * surface has a verified email (from the ALB); chat can't check admin (no email).
+ */
+export function isAdmin(email: string, env: NodeJS.ProcessEnv = process.env): boolean {
+  const want = (email ?? "").trim().toLowerCase();
+  if (!want) return false;
+  const list = (env.ADMIN_EMAILS ?? "")
     .split(",")
-    .map((s) => s.trim())
+    .map((s) => s.trim().toLowerCase())
     .filter(Boolean);
-  return list.length > 0 && list.includes(userId);
+  return list.includes(want);
 }
 
 function safeEqual(a: string, b: string): boolean {

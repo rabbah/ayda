@@ -52,7 +52,7 @@
   #rawlog div { padding:3px 0; border-bottom:1px solid #14171d; word-break:break-all; }
   #rawlog .seq { color:var(--accent); }
   .toolbar { display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap; }
-  .chip-btn { cursor:pointer; font:inherit; }
+  .chip-btn { cursor:pointer; font:inherit; text-decoration:none; }
   .chip-btn:hover { border-color:var(--accent); color:var(--fg); }
   #whoami-panel { position:fixed; top:52px; right:16px; z-index:10; width:min(360px,calc(100vw - 32px));
     background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px 16px;
@@ -76,6 +76,8 @@
   <span class="chip">conn <b id="conn">—</b></span>
   <span class="chip">lastEventId <b id="lei">—</b></span>
   <span class="chip">github <b id="gh">—</b></span>
+  <a id="gh-connect" class="chip chip-btn" href="/auth/github/login" title="Install & connect GitHub for your account" hidden>Connect GitHub</a>
+  <a id="gh-setup" class="chip chip-btn" href="/api/setup/github/start" title="Create & configure the GitHub App (admin only)" hidden>Set up GitHub App</a>
   <button id="whoami-btn" class="chip chip-btn" title="Show my identity (like /whoami in chat)">whoami</button>
 </header>
 
@@ -111,17 +113,26 @@ let es = null, sessionId = null, lastEventId = null, pendingEl = null;
 // Reveal it with ?debug — e.g. http://localhost:8080/?debug
 if (new URLSearchParams(location.search).has("debug")) document.body.classList.add("debug");
 
-// GitHub connection status — read-only. Provisioning and per-user connect are
-// driven from chat now (/setup-github by an admin, /connect-github by a user),
-// so this just reflects state; it doesn't offer actions.
+// GitHub connection status + actions. Connect is available to any signed-in user
+// once the App is configured; setup is admin-only and shown only when the App
+// isn't configured yet. Both are plain navigations — the server keys the token by
+// the resolved platform identity and handles the GitHub redirect/manifest.
 async function refreshGh(){
+  const gh = $("gh"), connectBtn = $("gh-connect"), setupBtn = $("gh-setup");
+  connectBtn.hidden = true; setupBtn.hidden = true;
   try {
     const s = await (await fetch("/auth/github/status")).json();
-    const el = $("gh");
-    if (s.connected) el.textContent = "✓ " + (s.login || "connected");
-    else if (s.configured) el.textContent = "not connected — /connect-github in chat";
-    else el.textContent = "not set up — admin: /setup-github in chat";
-  } catch { $("gh").textContent = "?"; }
+    if (s.connected) {
+      gh.textContent = "✓ " + (s.login || "connected");
+    } else if (s.configured) {
+      gh.textContent = "not connected";
+      connectBtn.hidden = false;                 // any authenticated user may connect
+    } else {
+      gh.textContent = "not set up";
+      // Provisioning the App is admin-only — reveal the setup button for admins.
+      try { const w = await (await fetch("/api/whoami")).json(); if (w.admin) setupBtn.hidden = false; } catch {}
+    }
+  } catch { gh.textContent = "?"; }
 }
 refreshGh();
 
@@ -139,7 +150,6 @@ async function showWhoami(){
   try {
     const w = await (await fetch("/api/whoami")).json();
     if (!w.allowed){ row(dl, "access", "denied by grants", "warn"); return; }
-    row(dl, "userId", w.userId || "anonymous (local/dev)", w.userId ? null : "warn");
     if (w.email) row(dl, "email", w.email);
     row(dl, "admin", w.admin ? "yes" : "no", w.admin ? "ok" : null);
     row(dl, "github", w.github, w.githubConnected ? "ok" : "warn");

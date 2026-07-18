@@ -3,8 +3,8 @@
  *
  * Credentials come from exactly one place: the in-app setup flow (App-Manifest,
  * auth/setup.ts) mints a fresh GitHub App and stores its client_id/client_secret
- * in the Store's kv. There is no env-var path — an admin (ADMIN_USER_IDS)
- * provisions the App from chat via /setup-github.
+ * in the Store's kv. There is no env-var path — an admin (ADMIN_EMAILS)
+ * provisions the App from the web UI's "Set up GitHub App" button.
  *
  * loadAppCreds() runs once at boot to seed the in-memory cache from the DB;
  * saveAppCreds() updates both DB and cache when setup completes, so the OAuth

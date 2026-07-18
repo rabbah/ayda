@@ -99,9 +99,3 @@ function externalBase(env: NodeJS.ProcessEnv): string {
 export function buildConnectUrl(userId: string, secret: string, env: NodeJS.ProcessEnv = process.env): string {
   return `${externalBase(env)}/auth/github/login?link=${encodeURIComponent(mintLink("connect", userId, secret))}`;
 }
-
-/** Link an admin clicks to provision (or rebind) the shared GitHub App. */
-export function buildSetupUrl(userId: string, secret: string, org?: string, env: NodeJS.ProcessEnv = process.env): string {
-  const orgQ = org ? `&org=${encodeURIComponent(org)}` : "";
-  return `${externalBase(env)}/api/setup/github/start?link=${encodeURIComponent(mintLink("setup", userId, secret))}${orgQ}`;
-}

@@ -26,8 +26,7 @@ import { EventType } from "../types/agui.ts";
 import type { Store } from "../store/store.ts";
 import { getValidToken } from "../auth/github-app.ts";
 import { githubConfigured } from "../auth/app-config.ts";
-import { getServerSecret, buildConnectUrl, buildSetupUrl } from "../auth/connect.ts";
-import { isAdmin } from "../auth/setup.ts";
+import { getServerSecret, buildConnectUrl } from "../auth/connect.ts";
 
 const CONV_NS = "conv_claude_session"; // conversationId -> claude session_id (for --resume)
 const HINT_NS = "gh_connect_hint"; // conversationId -> "1" once the connect hint has been shown
@@ -80,8 +79,7 @@ export class ClaudeCodeAdapter implements AgentAdapter {
       hooks.onFinish();
     };
     // whoami reveals only the caller's own identity to themselves — safe in any
-    // context, so it runs before the DM gate. Handy for finding the value to put
-    // in ADMIN_USER_IDS.
+    // context, so it runs before the DM gate.
     if (directive.kind === "whoami") {
       const rec = githubConfigured() ? await this.store.getGithubToken(options.userId) : null;
       const gh = !githubConfigured()
@@ -91,34 +89,32 @@ export class ClaudeCodeAdapter implements AgentAdapter {
           : "not connected (run /connect-github)";
       reply(
         `Your messaging identity:\n` +
-          `• userId: \`${options.userId}\`  (add this to ADMIN_USER_IDS to allow /setup-github)\n` +
-          `• admin: ${isAdmin(options.userId) ? "yes" : "no"}\n` +
+          `• userId: \`${options.userId}\`\n` +
           `• github: ${gh}`,
       );
       return;
     }
-    if (!isPrivate(options)) {
+    // Setup is web-only now: admin is verified by email (ADMIN_EMAILS), which the
+    // messaging surface doesn't carry. Point operators to the web UI — this is
+    // just guidance (no link), so it's safe in any context.
+    if (directive.kind === "setup") {
       reply(
-        `Please DM me to ${directive.kind === "setup" ? "set up" : "connect"} GitHub — a link posted in a channel would be visible to everyone here.`,
+        `GitHub App setup moved to the web UI. Open the app and click "Set up GitHub App" (visible to admins). ` +
+          `Chat can't run setup — admin access is verified by email, which isn't available here.`,
       );
       return;
     }
+    // connect — DM-only: the link binds to your identity, so a channel would leak it.
+    if (!isPrivate(options)) {
+      reply(`Please DM me to connect GitHub — a link posted in a channel would be visible to everyone here.`);
+      return;
+    }
+    if (!githubConfigured()) {
+      reply("GitHub isn't set up on this agent yet, so there's nothing to connect to.");
+      return;
+    }
     const secret = await getServerSecret(this.store);
-    if (directive.kind === "connect") {
-      if (!githubConfigured()) {
-        reply("GitHub isn't set up on this agent yet, so there's nothing to connect to.");
-        return;
-      }
-      reply(`Open this link to install me on the repositories you want me to work with — you pick the repos, and it connects your GitHub in the same step (expires in 10 min):\n${buildConnectUrl(options.userId, secret)}`);
-      return;
-    }
-    // setup — operator-only
-    if (!isAdmin(options.userId)) {
-      reply("You're not authorized to set up the GitHub App. Ask someone listed in ADMIN_USER_IDS to run /setup-github.");
-      return;
-    }
-    const note = githubConfigured() ? "\n\n⚠️ This will replace the GitHub App currently configured." : "";
-    reply(`Open this link to create the GitHub App and connect it (expires in 10 min):\n${buildSetupUrl(options.userId, secret, directive.org)}${note}`);
+    reply(`Open this link to install me on the repositories you want me to work with — you pick the repos, and it connects your GitHub in the same step (expires in 10 min):\n${buildConnectUrl(options.userId, secret)}`);
   }
 
   async stream(prompt: string, hooks: StreamHooks, options: StreamOptions): Promise<void> {
