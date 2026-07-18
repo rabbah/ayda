@@ -76,18 +76,23 @@
   .toolbar { display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap; }
   .chip-btn { cursor:pointer; font:inherit; text-decoration:none; }
   .chip-btn:hover { border-color:var(--accent); color:var(--fg); }
-  #whoami-btn { margin-left:auto; }
-  #whoami-panel { position:fixed; top:52px; right:16px; z-index:10; width:min(360px,calc(100vw - 32px));
+  #settings-btn { margin-left:auto; display:inline-flex; align-items:center; }
+  #settings-panel { position:fixed; top:52px; right:16px; z-index:10; width:min(360px,calc(100vw - 32px));
     background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px 16px;
     box-shadow:0 8px 28px rgba(0,0,0,.45); }
-  #whoami-panel h2 { margin:0 0 10px; }
-  #whoami-close { position:absolute; top:8px; right:8px; background:none; border:none; color:var(--muted);
+  #settings-panel h2 { margin:0 0 10px; }
+  #settings-close { position:absolute; top:8px; right:8px; background:none; border:none; color:var(--muted);
     cursor:pointer; font-size:14px; padding:2px 6px; }
-  #whoami-close:hover { color:var(--fg); }
-  #whoami-dl { margin:0; display:grid; grid-template-columns:auto 1fr; gap:6px 12px; }
-  #whoami-dl dt { color:var(--muted); }
-  #whoami-dl dd { margin:0; word-break:break-all; }
-  #whoami-dl dd.ok { color:var(--ok); } #whoami-dl dd.warn { color:#e6b455; }
+  #settings-close:hover { color:var(--fg); }
+  #settings-dl { margin:0; display:grid; grid-template-columns:auto 1fr; gap:6px 12px; }
+  #settings-dl dt { color:var(--muted); }
+  #settings-dl dd { margin:0; word-break:break-all; }
+  #settings-dl dd.ok { color:var(--ok); } #settings-dl dd.warn { color:#e6b455; }
+  #settings-actions:not(:empty) { margin-top:14px; padding-top:12px; border-top:1px solid var(--line);
+    display:flex; flex-direction:column; gap:8px; }
+  .settings-action { display:block; text-align:center; text-decoration:none; color:var(--fg);
+    border:1px solid var(--line); border-radius:8px; padding:8px 10px; }
+  .settings-action:hover { border-color:var(--accent); }
   .caret { color:var(--muted); }
   #session-menu { position:fixed; top:52px; left:16px; z-index:10; width:min(360px,calc(100vw - 32px));
     max-height:60vh; overflow:auto; background:var(--panel); border:1px solid var(--line); border-radius:10px;
@@ -97,6 +102,7 @@
     border-radius:8px; padding:8px 10px; cursor:pointer; color:var(--fg); font:inherit; }
   .sess-item:hover { background:#0c0e12; }
   .sess-item.active { border-color:var(--accent); }
+  .sess-item.sess-new { color:var(--accent); font-weight:600; margin-bottom:4px; }
   .sess-item .label { display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .sess-item .meta { display:block; color:var(--muted); font-size:11px; margin-top:2px; }
   #toast { position:fixed; top:16px; left:50%; transform:translateX(-50%); z-index:20;
@@ -115,18 +121,18 @@
   <span class="chip">cost <b id="cost">—</b></span>
   <span class="chip">conn <b id="conn">—</b></span>
   <span class="chip">lastEventId <b id="lei">—</b></span>
-  <span class="chip">github <b id="gh">—</b></span>
-  <a id="gh-connect" class="chip chip-btn" href="/auth/github/login" title="Install & connect GitHub for your account" hidden>Connect GitHub</a>
-  <a id="gh-setup" class="chip chip-btn" href="/api/setup/github/start" title="Create & configure the GitHub App (admin only)" hidden>Set up GitHub App</a>
-  <button id="whoami-btn" class="chip chip-btn" title="Show my identity (like /whoami in chat)">whoami</button>
+  <button id="settings-btn" class="chip chip-btn" title="Settings" aria-label="Settings">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+  </button>
 </header>
 
 <div id="toast" hidden></div>
 
-<div id="whoami-panel" hidden>
-  <button id="whoami-close" title="Close">✕</button>
-  <h2>Your identity</h2>
-  <dl id="whoami-dl"></dl>
+<div id="settings-panel" hidden>
+  <button id="settings-close" title="Close">✕</button>
+  <h2>Settings</h2>
+  <dl id="settings-dl"></dl>
+  <div id="settings-actions"></div>
 </div>
 
 <div id="session-menu" hidden></div>
@@ -157,35 +163,12 @@ let es = null, sessionId = null, lastEventId = null, pendingEl = null;
 // Reveal it with ?debug — e.g. http://localhost:8080/?debug
 if (new URLSearchParams(location.search).has("debug")) document.body.classList.add("debug");
 
-// GitHub connection status + actions. Connect is available to any signed-in user
-// once the App is configured; setup is shown only when the App isn't configured
-// yet, and only to users who may provision it (admins, or anyone signed in when
-// no ADMIN_EMAILS list is set — see /api/whoami canSetup). Both are plain
-// navigations — the server keys the token by the resolved platform identity and
-// handles the GitHub redirect/manifest.
-async function refreshGh(){
-  const gh = $("gh"), connectBtn = $("gh-connect"), setupBtn = $("gh-setup");
-  connectBtn.hidden = true; setupBtn.hidden = true;
-  try {
-    const s = await (await fetch("/auth/github/status")).json();
-    if (s.connected) {
-      gh.textContent = "✓ " + (s.login || "connected");
-    } else if (s.configured) {
-      gh.textContent = "not connected";
-      connectBtn.hidden = false;                 // any authenticated user may connect
-    } else {
-      gh.textContent = "not set up";
-      // Reveal the setup button only to users who may provision the App: admins
-      // (ADMIN_EMAILS), or — when no admin list is configured — anyone signed in.
-      try { const w = await (await fetch("/api/whoami")).json(); if (w.canSetup) setupBtn.hidden = false; } catch {}
-    }
-  } catch { gh.textContent = "?"; }
-}
-refreshGh();
+// GitHub connection state + Connect / Set-up actions now live in the Settings
+// panel (the gear button) — see showSettings().
 
 // Just returned from the GitHub connect flow (server redirects here with the
 // hint). Flash a brief confirmation, then strip the param so a reload/back
-// doesn't re-show it. refreshGh() above independently updates the github chip.
+// doesn't re-show it. The Settings panel reflects the connected state on open.
 if (new URLSearchParams(location.search).get("github") === "connected") {
   const t = $("toast");
   t.textContent = "✓ GitHub connected";
@@ -194,16 +177,21 @@ if (new URLSearchParams(location.search).get("github") === "connected") {
   history.replaceState(null, "", location.pathname);
 }
 
-// Identity panel — the browser counterpart to chat's /whoami. Fetches the
-// resolved platform identity + GitHub state from /api/whoami and renders it.
+// Settings panel (gear button): shows the caller's identity and — depending on
+// GitHub state — a link to set up or connect GitHub. Everything from /api/whoami.
 function row(dl, term, value, cls){
   const dt = document.createElement("dt"); dt.textContent = term;
   const dd = document.createElement("dd"); dd.textContent = value; if (cls) dd.classList.add(cls);
   dl.appendChild(dt); dl.appendChild(dd);
 }
-async function showWhoami(){
-  const panel = $("whoami-panel"), dl = $("whoami-dl");
-  dl.innerHTML = "";
+function actionLink(container, label, href){
+  const a = document.createElement("a");
+  a.className = "settings-action"; a.href = href; a.textContent = label;
+  container.appendChild(a);
+}
+async function showSettings(){
+  const panel = $("settings-panel"), dl = $("settings-dl"), actions = $("settings-actions");
+  dl.innerHTML = ""; actions.innerHTML = "";
   panel.hidden = false;
   try {
     const w = await (await fetch("/api/whoami")).json();
@@ -213,13 +201,20 @@ async function showWhoami(){
     // otherwise "admin: no" is misleading (there's no admin concept in play).
     if (w.adminConfigured) row(dl, "admin", w.admin ? "yes" : "no", w.admin ? "ok" : null);
     row(dl, "github", w.github, w.githubConnected ? "ok" : "warn");
-  } catch { row(dl, "error", "could not load identity", "warn"); }
+    // GitHub action, chosen by state: set up the App (not configured + caller may
+    // provision), else connect the user's GitHub (configured but not connected).
+    if (!w.githubConfigured){
+      if (w.canSetup) actionLink(actions, "Set up GitHub App", "/api/setup/github/start");
+    } else if (!w.githubConnected){
+      actionLink(actions, "Connect GitHub", "/auth/github/login");
+    }
+  } catch { row(dl, "error", "could not load settings", "warn"); }
 }
-$("whoami-btn").addEventListener("click", () => {
-  const panel = $("whoami-panel");
-  if (panel.hidden) showWhoami(); else panel.hidden = true;
+$("settings-btn").addEventListener("click", () => {
+  const panel = $("settings-panel");
+  if (panel.hidden) showSettings(); else panel.hidden = true;
 });
-$("whoami-close").addEventListener("click", () => { $("whoami-panel").hidden = true; });
+$("settings-close").addEventListener("click", () => { $("settings-panel").hidden = true; });
 
 // ---- Session history --------------------------------------------------------
 // Sessions are per-browser and the server registry is in-memory, so the history
@@ -245,7 +240,12 @@ function relTime(ts){
 function renderSessionMenu(){
   const menu = $("session-menu"), list = loadSessions();
   menu.innerHTML = "";
-  if (!list.length){ const d = document.createElement("div"); d.className = "empty"; d.textContent = "no sessions yet"; menu.appendChild(d); return; }
+  const nw = document.createElement("button");
+  nw.className = "sess-item sess-new";
+  nw.textContent = "＋ New session";
+  nw.addEventListener("click", () => { $("session-menu").hidden = true; newSession(); });
+  menu.appendChild(nw);
+  if (!list.length){ const d = document.createElement("div"); d.className = "empty"; d.textContent = "no past sessions"; menu.appendChild(d); return; }
   for (const s of list){
     const b = document.createElement("button");
     b.className = "sess-item" + (s.id === sessionId ? " active" : "");
@@ -267,6 +267,16 @@ function switchSession(id){
   renderSessionMenu();
   connect(-1); // replay everything from the server's buffer, then live-tail
 }
+// Detach from the current session and clear the view; the next prompt starts fresh.
+function newSession(){
+  if (es){ es.close(); es = null; }
+  sessionId = null; lastEventId = null; pendingEl = null;
+  timeline.innerHTML = ""; rawlog.innerHTML = ""; messages.clear(); tools.clear();
+  resetUsage(); setStatus("idle"); setComposerEnabled(true);
+  $("sid").textContent = "—"; $("lei").textContent = "—";
+  renderSessionMenu();
+  $("prompt").focus();
+}
 $("sid-btn").addEventListener("click", (e) => {
   e.stopPropagation();
   const menu = $("session-menu");
@@ -284,13 +294,25 @@ function fmtTokens(n){
   if (n >= 1e3) return (n / 1e3).toFixed(1) + "k";
   return String(n);
 }
-function resetUsage(){ $("tok").textContent = "—"; $("cost").textContent = "—"; $("tok").removeAttribute("title"); $("cost").removeAttribute("title"); }
+// Accumulated across all turns of the current session (a session's total spend).
+// Reset when starting/switching sessions; re-summed as usage events replay.
+let sessionUsage = null;
+function resetUsage(){
+  sessionUsage = null;
+  $("tok").textContent = "—"; $("cost").textContent = "—";
+  $("tok").removeAttribute("title"); $("cost").removeAttribute("title");
+}
 function updateUsage(u){
   if (!u) return;
-  $("tok").textContent = `${fmtTokens(u.inputTokens)}↑ ${fmtTokens(u.outputTokens)}↓`;
-  $("tok").title = `input ${u.inputTokens||0} · output ${u.outputTokens||0} · cache read ${u.cacheReadTokens||0} · cache write ${u.cacheCreationTokens||0}`;
-  $("cost").textContent = (u.costUsd == null) ? "n/a" : "$" + Number(u.costUsd).toFixed(4);
-  if (u.costSource) $("cost").title = "cost source: " + u.costSource;
+  const s = sessionUsage || (sessionUsage = { in:0, out:0, cr:0, cw:0, cost:0, hasCost:false });
+  s.in += Number(u.inputTokens) || 0;
+  s.out += Number(u.outputTokens) || 0;
+  s.cr += Number(u.cacheReadTokens) || 0;
+  s.cw += Number(u.cacheCreationTokens) || 0;
+  if (u.costUsd != null){ s.cost += Number(u.costUsd) || 0; s.hasCost = true; }
+  $("tok").textContent = `${fmtTokens(s.in)}↑ ${fmtTokens(s.out)}↓`;
+  $("tok").title = `session total — input ${s.in} · output ${s.out} · cache read ${s.cr} · cache write ${s.cw}`;
+  $("cost").textContent = s.hasCost ? "$" + s.cost.toFixed(4) : "n/a";
 }
 
 const messages = new Map();  // messageId -> {el, buf}
@@ -420,33 +442,54 @@ function connect(fromSeq){
   };
 }
 
+// Each turn's user bubble needs a unique id (a session now has many turns).
+let turnSeq = 0;
+function addUserBubble(text){ messageBubble("user-" + (++turnSeq), "user").body.textContent = text; }
+function showPending(text){
+  clearPending();
+  pendingEl = document.createElement("div");
+  pendingEl.className = "pending";
+  pendingEl.innerHTML = `<span class="dot"></span> ${text}`;
+  timeline.appendChild(pendingEl); scroll();
+}
+
 $("composer").addEventListener("submit", async (e) => {
   e.preventDefault();
   const prompt = $("prompt").value.trim();
   if (!prompt) return;
-  timeline.innerHTML = ""; rawlog.innerHTML = ""; messages.clear(); tools.clear(); lastEventId = null;
-  resetUsage();
 
-  // Echo the prompt as a user bubble, clear + lock the composer, show a waiting hint.
-  messageBubble("user-input", "user").body.textContent = prompt;
+  // With an active session a prompt is a FOLLOW-UP turn on it; otherwise it
+  // starts a NEW session. Only a new session clears the timeline + usage.
+  const following = !!sessionId;
+  if (!following){
+    timeline.innerHTML = ""; rawlog.innerHTML = ""; messages.clear(); tools.clear(); lastEventId = null;
+    resetUsage();
+  }
+  addUserBubble(prompt);
   $("prompt").value = "";
   setComposerEnabled(false);
   setStatus("starting");
-  pendingEl = document.createElement("div");
-  pendingEl.className = "pending";
-  pendingEl.innerHTML = `<span class="dot"></span> starting Claude… (spawning; first tokens can take a few seconds)`;
-  timeline.appendChild(pendingEl); scroll();
+  showPending(following ? "Claude is thinking…" : "starting Claude… (spawning; first tokens can take a few seconds)");
 
   try {
-    const res = await fetch("/sessions", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt }),
-    });
-    if (!res.ok){ clearPending(); note("failed to start session: " + await res.text()); setComposerEnabled(true); return; }
-    ({ sessionId } = await res.json());
-    $("sid").textContent = sessionId.slice(0, 14);
-    addSession(sessionId, prompt);
-    connect(null);
+    if (following){
+      // Follow-up: the turn streams in over the session's already-open SSE.
+      const res = await fetch(`/sessions/${sessionId}/messages`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt }),
+      });
+      if (!res.ok){ clearPending(); note("failed to continue session: " + await res.text()); setComposerEnabled(true); }
+    } else {
+      const res = await fetch("/sessions", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt }),
+      });
+      if (!res.ok){ clearPending(); note("failed to start session: " + await res.text()); setComposerEnabled(true); return; }
+      ({ sessionId } = await res.json());
+      $("sid").textContent = sessionId.slice(0, 14);
+      addSession(sessionId, prompt);
+      connect(null);
+    }
   } catch (err){
     clearPending(); note("request failed: " + err.message); setComposerEnabled(true);
   }

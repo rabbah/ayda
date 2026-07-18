@@ -2,7 +2,8 @@
  * Wiring / entrypoint (HTTP).
  *
  *   GET  /                         -> built-in AG-UI test client (public/index.html)
- *   POST /sessions {prompt,...}    -> {sessionId}
+ *   POST /sessions {prompt,...}    -> {sessionId} (starts a new multi-turn session)
+ *   POST /sessions/:id/messages    -> continue a session with a follow-up turn
  *   GET  /sessions/:id/events      -> SSE AG-UI stream; honours Last-Event-ID
  *   GET  /auth/github/login        -> 302 to GitHub App authorize (?link=<t> connects a chat user)
  *   GET  /auth/github/callback     -> code exchange; stores the user's token
@@ -58,8 +59,10 @@ const PUBLIC_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "public")
 
 const registry = new SessionRegistry();
 const resultStore: ResultStore = new InMemoryResultStore();
-/** bridge session id -> Claude's session_id (for --resume). */
+/** bridge session id -> Claude's session_id, resumed on each follow-up turn. */
 const claudeSessionIds = new Map<string, string>();
+/** bridge session id -> its workspace cwd, reused across turns. */
+const workspaces = new Map<string, string>();
 /** OAuth CSRF: state nonce -> user key (bridge_uid, or a messaging userId for
  * connect-link logins). TODO: TTL/GC. */
 const pendingStates = new Map<string, string>();
@@ -128,16 +131,20 @@ async function resolveIdentity(
 
 /* ---------------- session bridging ---------------- */
 
-interface StartOpts {
+interface TurnOpts {
   prompt: string;
   allowedTools: string[];
   permissionMode: string;
   userKey: string; // bridge_uid, for GitHub token lookup
 }
 
-async function startSession(opts: StartOpts): Promise<string> {
-  const bridgeId = `sess_${randomUUID()}`;
-  registry.ensure(bridgeId);
+/**
+ * Run ONE turn of a session: spawn a Claude Agent SDK query, resuming the
+ * session's prior Claude session_id if it has one (follow-up turns), and fan its
+ * events into the SAME bridge session log — so a whole multi-turn conversation
+ * accumulates in one registry entry and streams over one SSE connection.
+ */
+async function runTurn(bridgeId: string, cwd: string, opts: TurnOpts): Promise<void> {
   registry.setStatus(bridgeId, "running");
 
   const model = resolveModel();
@@ -147,12 +154,6 @@ async function startSession(opts: StartOpts): Promise<string> {
     ? ((await getValidToken(store, opts.userKey)) ?? undefined)
     : undefined;
 
-  // Each run gets its own writable temp workspace as its cwd — the process cwd
-  // is the read-only /app source tree in the container. Kept (no cleanup); see
-  // session/workspace.ts.
-  const cwd = createWorkspace();
-  console.log(`[bridge] session ${bridgeId} workspace ${cwd}`);
-
   const translator = new Translator();
   const source = new ClaudeAgentSession({
     model,
@@ -160,6 +161,8 @@ async function startSession(opts: StartOpts): Promise<string> {
     permissionMode: opts.permissionMode,
     githubToken,
     cwd,
+    // Resume the prior Claude session (if any) so follow-up turns keep context.
+    resumeSessionId: claudeSessionIds.get(bridgeId),
   });
 
   source.on("event", (ev) => {
@@ -172,9 +175,10 @@ async function startSession(opts: StartOpts): Promise<string> {
       registry.setStatus(bridgeId, ev.is_error ? "errored" : "finished");
       const rec = toRunRecord(model.id, ev);
       void resultStore.save(rec);
-      // Surface the run's token usage + cost to the client as a replayable event
+      // Surface the turn's token usage + cost to the client as a replayable event
       // (the translator drops usage; RUN_FINISHED carries none). Logged in the
-      // registry so switching back to a finished session restores the figures.
+      // registry so switching back to a session restores the figures; the client
+      // sums per-turn usage into a session total.
       registry.append(bridgeId, {
         type: EventType.CUSTOM,
         name: "claude.usage",
@@ -187,6 +191,8 @@ async function startSession(opts: StartOpts): Promise<string> {
           costSource: rec.costSource,
         },
       });
+      // One telemetry root span per turn: endSession deletes the ctx entry, so
+      // the next turn's init event opens a fresh span under the same bridgeId.
       telemetry.endSession(bridgeId);
     }
   });
@@ -196,14 +202,39 @@ async function startSession(opts: StartOpts): Promise<string> {
     }
   });
   source.on("spawnError", (err) => {
-    console.error(`[agent] session failed: ${err.message}`);
+    console.error(`[agent] session ${bridgeId} turn failed: ${err.message}`);
     registry.setStatus(bridgeId, "errored");
   });
 
   source.start();
   source.sendUserMessage(opts.prompt);
-  source.closeInput(); // single-turn scaffold
+  source.closeInput(); // one query() per turn; resume carries context to the next
+}
+
+/** Start a NEW multi-turn session: mint an id, create its workspace, run turn 1. */
+async function startSession(opts: TurnOpts): Promise<string> {
+  const bridgeId = `sess_${randomUUID()}`;
+  registry.ensure(bridgeId);
+  // Each session gets its own writable temp workspace as its cwd (the process
+  // cwd is the read-only /app source tree). Reused across turns; kept, no
+  // cleanup. See session/workspace.ts.
+  const cwd = createWorkspace();
+  workspaces.set(bridgeId, cwd);
+  console.log(`[bridge] session ${bridgeId} workspace ${cwd}`);
+  await runTurn(bridgeId, cwd, opts);
   return bridgeId;
+}
+
+/** Run a FOLLOW-UP turn on an existing session: same workspace, resumed context. */
+async function continueSession(bridgeId: string, opts: TurnOpts): Promise<void> {
+  // Reuse the session's workspace; recreate one only if it was somehow lost (the
+  // registry entry still exists, so this is defensive) to avoid failing the turn.
+  let cwd = workspaces.get(bridgeId);
+  if (!cwd) {
+    cwd = createWorkspace();
+    workspaces.set(bridgeId, cwd);
+  }
+  await runTurn(bridgeId, cwd, opts);
 }
 
 /* ---------------- SSE ---------------- */
@@ -583,6 +614,38 @@ async function main(): Promise<void> {
               userKey,
             });
             res.writeHead(201, { "Content-Type": "application/json" }).end(JSON.stringify({ sessionId }));
+          } catch (e) {
+            res.writeHead(400).end(`bad request: ${(e as Error).message}`);
+          }
+        })();
+      });
+      return;
+    }
+
+    const mMsg = url.pathname.match(/^\/sessions\/([^/]+)\/messages$/);
+    if (req.method === "POST" && mMsg) {
+      const bridgeId = decodeURIComponent(mMsg[1]);
+      let body = "";
+      req.on("data", (c) => (body += c));
+      req.on("end", () => {
+        void (async () => {
+          try {
+            if (!registry.has(bridgeId)) return void res.writeHead(404).end("unknown session");
+            const b = JSON.parse(body || "{}");
+            if (!b.prompt) return void res.writeHead(400).end("prompt required");
+            // One query() runs at a time per session — refuse overlapping turns.
+            const st = registry.status(bridgeId);
+            if (st === "running" || st === "starting") return void res.writeHead(409).end("session busy");
+            const { allowed, userKey } = await resolveIdentity(req, res);
+            if (!allowed) return void res.writeHead(403).end("forbidden");
+            await continueSession(bridgeId, {
+              prompt: b.prompt,
+              allowedTools: b.allowedTools ?? ["Read", "Edit", "Bash", "Grep"],
+              permissionMode: b.permissionMode ?? "acceptEdits",
+              userKey,
+            });
+            // The follow-up turn streams over the session's already-open SSE.
+            res.writeHead(202, { "Content-Type": "application/json" }).end(JSON.stringify({ sessionId: bridgeId }));
           } catch (e) {
             res.writeHead(400).end(`bad request: ${(e as Error).message}`);
           }
