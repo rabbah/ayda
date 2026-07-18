@@ -8,8 +8,6 @@
     "node": ">=23"
   },
   "scripts": {
-    "demo": "node scripts/demo-translate.ts",
-    "demo:sse": "node scripts/demo-translate.ts --sse",
     "start": "node agent/index.ts",
     "typecheck": "tsc --noEmit"
   },
