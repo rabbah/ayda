@@ -94,13 +94,14 @@ export class ClaudeCodeAdapter implements AgentAdapter {
       );
       return;
     }
-    // Setup is web-only now: admin is verified by email (ADMIN_EMAILS), which the
-    // messaging surface doesn't carry. Point operators to the web UI — this is
+    // Setup is web-only: provisioning is gated on the ALB-verified web identity
+    // (admin email when ADMIN_EMAILS is set, otherwise any signed-in user), which
+    // the messaging surface doesn't carry. Point operators to the web UI — this is
     // just guidance (no link), so it's safe in any context.
     if (directive.kind === "setup") {
       reply(
-        `GitHub App setup moved to the web UI. Open the app and click "Set up GitHub App" (visible to admins). ` +
-          `Chat can't run setup — admin access is verified by email, which isn't available here.`,
+        `GitHub App setup moved to the web UI. Open the app and click "Set up GitHub App". ` +
+          `Chat can't run setup — it needs your signed-in web identity, which isn't available here.`,
       );
       return;
     }

@@ -115,9 +115,11 @@ let es = null, sessionId = null, lastEventId = null, pendingEl = null;
 if (new URLSearchParams(location.search).has("debug")) document.body.classList.add("debug");
 
 // GitHub connection status + actions. Connect is available to any signed-in user
-// once the App is configured; setup is admin-only and shown only when the App
-// isn't configured yet. Both are plain navigations — the server keys the token by
-// the resolved platform identity and handles the GitHub redirect/manifest.
+// once the App is configured; setup is shown only when the App isn't configured
+// yet, and only to users who may provision it (admins, or anyone signed in when
+// no ADMIN_EMAILS list is set — see /api/whoami canSetup). Both are plain
+// navigations — the server keys the token by the resolved platform identity and
+// handles the GitHub redirect/manifest.
 async function refreshGh(){
   const gh = $("gh"), connectBtn = $("gh-connect"), setupBtn = $("gh-setup");
   connectBtn.hidden = true; setupBtn.hidden = true;
@@ -130,8 +132,9 @@ async function refreshGh(){
       connectBtn.hidden = false;                 // any authenticated user may connect
     } else {
       gh.textContent = "not set up";
-      // Provisioning the App is admin-only — reveal the setup button for admins.
-      try { const w = await (await fetch("/api/whoami")).json(); if (w.admin) setupBtn.hidden = false; } catch {}
+      // Reveal the setup button only to users who may provision the App: admins
+      // (ADMIN_EMAILS), or — when no admin list is configured — anyone signed in.
+      try { const w = await (await fetch("/api/whoami")).json(); if (w.canSetup) setupBtn.hidden = false; } catch {}
     }
   } catch { gh.textContent = "?"; }
 }

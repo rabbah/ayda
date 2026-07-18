@@ -17,8 +17,15 @@ import type { GithubAppCreds } from "./app-config.ts";
 
 const STATE_TTL_MS = 15 * 60 * 1000; // allows for time spent on GitHub's create screen
 
+function parseAdminEmails(env: NodeJS.ProcessEnv): string[] {
+  return (env.ADMIN_EMAILS ?? "")
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+}
+
 /**
- * Whether a verified email is allowed to provision the App (ADMIN_EMAILS).
+ * Whether a verified email is on the admin allowlist (ADMIN_EMAILS).
  * Email is the admin key because it's the only human-knowable identity the
  * platform gives us — the opaque platform user id isn't something a deployer can
  * put in config ahead of time. Comparison is case-insensitive. Only the web
@@ -27,11 +34,29 @@ const STATE_TTL_MS = 15 * 60 * 1000; // allows for time spent on GitHub's create
 export function isAdmin(email: string, env: NodeJS.ProcessEnv = process.env): boolean {
   const want = (email ?? "").trim().toLowerCase();
   if (!want) return false;
-  const list = (env.ADMIN_EMAILS ?? "")
-    .split(",")
-    .map((s) => s.trim().toLowerCase())
-    .filter(Boolean);
-  return list.includes(want);
+  return parseAdminEmails(env).includes(want);
+}
+
+/** True when an explicit admin allowlist is configured (ADMIN_EMAILS non-empty). */
+export function adminListConfigured(env: NodeJS.ProcessEnv = process.env): boolean {
+  return parseAdminEmails(env).length > 0;
+}
+
+/**
+ * Whether this request may provision (set up) the GitHub App.
+ * - ADMIN_EMAILS set   -> restricted to those emails (admins may also re-provision).
+ * - ADMIN_EMAILS unset -> open to any authorized user, but only for the INITIAL
+ *   setup: once the App is configured, provisioning is locked so a random user
+ *   can't overwrite it and invalidate everyone's tokens. Set ADMIN_EMAILS to
+ *   re-enable admin (re-)provisioning.
+ */
+export function canProvision(
+  email: string,
+  opts: { allowed: boolean; configured: boolean },
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  if (!opts.allowed) return false;
+  return adminListConfigured(env) ? isAdmin(email, env) : !opts.configured;
 }
 
 function safeEqual(a: string, b: string): boolean {

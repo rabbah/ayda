@@ -28,19 +28,21 @@ agent:
   astro_ai_gateway: true
 
 inputs:
-  # GitHub App provisioning is web-driven and admin-only. List the email
-  # addresses allowed to set it up (comma-separated). An admin opens the web UI
-  # and clicks "Set up GitHub App", which walks GitHub's App-Manifest flow —
-  # creating a correctly-configured GitHub App (callback, permissions) in a couple
-  # clicks and storing its OAuth credentials in the DB. No manual App
-  # registration, no client id/secret to copy. Regular users then connect their
-  # own GitHub with `/connect-github` in chat. Leave unset and no one can provision
-  # the App (GitHub stays disabled). Emails are matched (case-insensitively)
-  # against the ALB-verified identity, so setup is web-only — chat has no email.
+  # GitHub App provisioning is web-driven. List the email addresses allowed to
+  # set it up (comma-separated). An admin opens the web UI and clicks "Set up
+  # GitHub App", which walks GitHub's App-Manifest flow — creating a correctly-
+  # configured GitHub App (callback, permissions) in a couple clicks and storing
+  # its OAuth credentials in the DB. No manual App registration, no client
+  # id/secret to copy. Regular users then connect their own GitHub with
+  # `/connect-github` in chat. Leave unset and any signed-in user may perform the
+  # INITIAL setup (once the App is configured, provisioning locks so no one can
+  # overwrite it — set this to re-enable admin re-provisioning). Emails are matched
+  # (case-insensitively) against the ALB-verified identity, so setup is web-only.
   ADMIN_EMAILS:
     name: ADMIN_EMAILS
     datatype: string
-    description: "Comma-separated admin emails allowed to set up the GitHub App (matched against the verified login email)"
+    optional: true
+    description: "Optional: comma-separated admin emails allowed to set up the GitHub App (matched against the verified login email). Unset = any signed-in user can do the initial setup."
     display-as: short-text
   # Optional opt-out of the Astro AI Gateway (see astro_ai_gateway above). Provide
   # your own Anthropic API key and model calls go DIRECTLY to api.anthropic.com

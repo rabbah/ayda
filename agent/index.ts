@@ -9,13 +9,15 @@
  *   GET  /auth/github/status       -> { connected, login, configured }
  *   GET  /api/whoami               -> { userId, email, admin, github... } (browser /whoami)
  *   GET  /api/setup/status         -> { configured, appSlug }
- *   GET  /api/setup/github/start   -> manifest auto-POST page (admin-email gated)
+ *   GET  /api/setup/github/start   -> manifest auto-POST page (provision-gated)
  *   GET  /api/setup/github/callback-> manifest-code exchange; stores App creds; -> install flow
  *
- * GitHub App provisioning is web-driven: an admin (ADMIN_EMAILS, matched against
- * the ALB-verified email) clicks "Set up GitHub App" in the UI, and the two
- * routes above drive GitHub's App-Manifest flow to create the App (auth/setup.ts).
- * Resolved creds live in auth/app-config.ts (stored in the DB).
+ * GitHub App provisioning is web-driven: an authorized user clicks "Set up GitHub
+ * App" in the UI, and the two routes above drive GitHub's App-Manifest flow to
+ * create the App (auth/setup.ts). Who may provision is governed by canProvision:
+ * admins (ADMIN_EMAILS, matched against the ALB-verified email), or — when no
+ * admin list is set — any signed-in user for the initial setup only. Resolved
+ * creds live in auth/app-config.ts (stored in the DB).
  *
  * GitHub auth: per-user GitHub App OAuth. Users connect via /connect-github in
  * chat (token keyed by the messaging userId) or the browser (keyed by a
@@ -43,7 +45,7 @@ import { resolveModel, describeAuth } from "./config/model.ts";
 import { createStore, type Store } from "./store/index.ts";
 import { authorizeUrl, exchangeCode, getValidToken } from "./auth/github-app.ts";
 import { githubConfigured, getAppCreds, saveAppCreds, loadAppCreds } from "./auth/app-config.ts";
-import { verifyState, buildManifest, convertManifestCode, renderManifestForm, isAdmin } from "./auth/setup.ts";
+import { verifyState, buildManifest, convertManifestCode, renderManifestForm, isAdmin, adminListConfigured, canProvision } from "./auth/setup.ts";
 import { getServerSecret, verifyLink } from "./auth/connect.ts";
 import { Authorizer, oidcIdentity, oidcEmail, type AuthzResult } from "./auth/authz.ts";
 import { SSE_HEADERS, frameLogged, sseHeartbeat, parseLastEventId } from "./transport/sse.ts";
@@ -377,6 +379,7 @@ async function whoami(req: IncomingMessage, res: ServerResponse): Promise<void> 
       userId, // resolved platform user id (null when anonymous / local dev)
       email: email || null,
       admin: isAdmin(email), // admin is keyed on the verified email (ADMIN_EMAILS)
+      canSetup: canProvision(email, { allowed, configured: githubConfigured() }), // may provision the App now
       githubConfigured: githubConfigured(),
       githubConnected: Boolean(rec),
       githubLogin: rec?.githubLogin ?? null,
@@ -389,15 +392,23 @@ async function whoami(req: IncomingMessage, res: ServerResponse): Promise<void> 
 
 /**
  * GET /api/setup/github/start?link=<t>[&org=<o>] — starts App provisioning.
- * Admin-only, via the frontend "Set up GitHub App" button. Authorization is by
- * verified email (ADMIN_EMAILS) resolved from the ALB identity — the only surface
- * with an email, so setup is web-only. Then renders a page that POSTs the
- * manifest to GitHub. No SETUP_TOKEN, no signed link.
+ * Reached via the frontend "Set up GitHub App" button. Authorization is by
+ * canProvision: admins (ADMIN_EMAILS) resolved from the ALB identity, or — when
+ * no admin list is set — any authorized user for the initial setup. Either way
+ * it needs the ALB-verified identity, so setup is web-only. Then renders a page
+ * that POSTs the manifest to GitHub. No SETUP_TOKEN, no signed link.
  */
 async function setupStart(req: IncomingMessage, url: URL, res: ServerResponse): Promise<void> {
   const { allowed, email } = await resolveIdentity(req, res);
-  if (!allowed || !isAdmin(email)) {
-    sendPage(res, 403, "Not authorized", "Setting up the GitHub App requires an admin (ADMIN_EMAILS).");
+  if (!allowed) {
+    sendPage(res, 403, "Not authorized", "You must be signed in to set up the GitHub App.");
+    return;
+  }
+  if (!canProvision(email, { allowed, configured: githubConfigured() })) {
+    const msg = adminListConfigured()
+      ? "Setting up the GitHub App requires an admin (ADMIN_EMAILS)."
+      : "The GitHub App is already configured. Set ADMIN_EMAILS to allow re-provisioning.";
+    sendPage(res, 403, "Not authorized", msg);
     return;
   }
   const secret = await getServerSecret(store);
