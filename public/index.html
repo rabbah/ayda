@@ -4,6 +4,14 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Ayda · test client</title>
+<!-- Markdown rendering for assistant messages. Pinned + SRI so a changed/compromised
+     CDN file can't execute; DOMPurify sanitizes marked's output (see renderMarkdown). -->
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"
+        integrity="sha384-/TQbtLCAerC3jgaim+N78RZSDYV7ryeoBCVqTuzRrFec2akfBkHS7ACQ3PQhvMVi"
+        crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.7/dist/purify.min.js"
+        integrity="sha384-XQqX/4yiUGu+oyr87jvWzRuqBUK/adrY0DunhL+tID9m/9dwSpV8h9Fk/Sg6ifVQ"
+        crossorigin="anonymous"></script>
 <style>
   :root { --bg:#0f1115; --panel:#181b22; --line:#272b34; --fg:#e6e8ec; --muted:#8b93a1;
           --user:#1e2a3a; --asst:#1b2620; --tool:#2a2418; --accent:#6ea8fe; --err:#ff6b6b; --ok:#5bd08b; }
@@ -29,6 +37,20 @@
   .bubble { border:1px solid var(--line); border-radius:10px; padding:10px 12px; margin:0 0 12px; white-space:pre-wrap; }
   .bubble.user { background:var(--user); } .bubble.assistant { background:var(--asst); }
   .role { font-size:11px; color:var(--muted); margin-bottom:4px; text-transform:uppercase; letter-spacing:.05em; }
+  /* Assistant bodies render markdown to HTML, so use normal wrapping; user bodies
+     keep the raw prompt verbatim (pre-wrap). */
+  .bubble .body { white-space:normal; }
+  .bubble.user .body { white-space:pre-wrap; }
+  .bubble .body > :first-child { margin-top:0; } .bubble .body > :last-child { margin-bottom:0; }
+  .bubble .body p { margin:0 0 8px; }
+  .bubble .body h1, .bubble .body h2, .bubble .body h3, .bubble .body h4 { margin:10px 0 6px; font-size:14px; color:var(--fg); text-transform:none; letter-spacing:0; }
+  .bubble .body ul, .bubble .body ol { margin:0 0 8px; padding-left:20px; }
+  .bubble .body li { margin:2px 0; }
+  .bubble .body code { background:#0c0e12; padding:1px 5px; border-radius:4px; font-size:12px; }
+  .bubble .body pre { background:#0c0e12; padding:8px 10px; border-radius:6px; overflow:auto; margin:0 0 8px; }
+  .bubble .body pre code { background:none; padding:0; }
+  .bubble .body a { color:var(--accent); }
+  .bubble .body strong { color:var(--fg); font-weight:600; }
   .tool { background:var(--tool); border:1px solid var(--line); border-radius:10px; padding:10px 12px; margin:0 0 12px; }
   .tool > summary { cursor:pointer; list-style:none; user-select:none; }
   .tool > summary::-webkit-details-marker { display:none; }
@@ -66,6 +88,17 @@
   #whoami-dl dt { color:var(--muted); }
   #whoami-dl dd { margin:0; word-break:break-all; }
   #whoami-dl dd.ok { color:var(--ok); } #whoami-dl dd.warn { color:#e6b455; }
+  .caret { color:var(--muted); }
+  #session-menu { position:fixed; top:52px; left:16px; z-index:10; width:min(360px,calc(100vw - 32px));
+    max-height:60vh; overflow:auto; background:var(--panel); border:1px solid var(--line); border-radius:10px;
+    padding:6px; box-shadow:0 8px 28px rgba(0,0,0,.45); }
+  #session-menu .empty { color:var(--muted); padding:8px 10px; }
+  .sess-item { display:block; width:100%; text-align:left; background:none; border:1px solid transparent;
+    border-radius:8px; padding:8px 10px; cursor:pointer; color:var(--fg); font:inherit; }
+  .sess-item:hover { background:#0c0e12; }
+  .sess-item.active { border-color:var(--accent); }
+  .sess-item .label { display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .sess-item .meta { display:block; color:var(--muted); font-size:11px; margin-top:2px; }
   #toast { position:fixed; top:16px; left:50%; transform:translateX(-50%); z-index:20;
     background:var(--panel); border:1px solid var(--ok); color:var(--fg); border-radius:8px;
     padding:8px 14px; box-shadow:0 8px 28px rgba(0,0,0,.45); transition:opacity .3s; }
@@ -75,9 +108,11 @@
 <body>
 <header>
   <h1>Ayda</h1>
-  <span class="chip">session <b id="sid">—</b></span>
+  <button id="sid-btn" class="chip chip-btn" title="Switch session">session <b id="sid">—</b> <span class="caret">▾</span></button>
   <span class="chip">status <b id="status">idle</b></span>
   <span class="chip">model <b id="model">—</b></span>
+  <span class="chip">tokens <b id="tok">—</b></span>
+  <span class="chip">cost <b id="cost">—</b></span>
   <span class="chip">conn <b id="conn">—</b></span>
   <span class="chip">lastEventId <b id="lei">—</b></span>
   <span class="chip">github <b id="gh">—</b></span>
@@ -93,6 +128,8 @@
   <h2>Your identity</h2>
   <dl id="whoami-dl"></dl>
 </div>
+
+<div id="session-menu" hidden></div>
 
 <main>
   <section id="timeline"></section>
@@ -172,7 +209,9 @@ async function showWhoami(){
     const w = await (await fetch("/api/whoami")).json();
     if (!w.allowed){ row(dl, "access", "denied by grants", "warn"); return; }
     if (w.email) row(dl, "email", w.email);
-    row(dl, "admin", w.admin ? "yes" : "no", w.admin ? "ok" : null);
+    // Only show the admin row when an admin allowlist is actually defined —
+    // otherwise "admin: no" is misleading (there's no admin concept in play).
+    if (w.adminConfigured) row(dl, "admin", w.admin ? "yes" : "no", w.admin ? "ok" : null);
     row(dl, "github", w.github, w.githubConnected ? "ok" : "warn");
   } catch { row(dl, "error", "could not load identity", "warn"); }
 }
@@ -181,6 +220,78 @@ $("whoami-btn").addEventListener("click", () => {
   if (panel.hidden) showWhoami(); else panel.hidden = true;
 });
 $("whoami-close").addEventListener("click", () => { $("whoami-panel").hidden = true; });
+
+// ---- Session history --------------------------------------------------------
+// Sessions are per-browser and the server registry is in-memory, so the history
+// lives in localStorage. Switching replays a past session from the server's
+// existing replay buffer (connect(-1) -> GET /sessions/:id/events?lastEventId=-1),
+// which works as long as the server hasn't restarted (handled in connect()).
+const SESS_KEY = "ada.sessions";
+function loadSessions(){ try { return JSON.parse(localStorage.getItem(SESS_KEY) || "[]"); } catch { return []; } }
+function saveSessions(list){ try { localStorage.setItem(SESS_KEY, JSON.stringify(list.slice(0, 20))); } catch {} }
+function addSession(id, label){
+  const list = loadSessions().filter(s => s.id !== id);
+  list.unshift({ id, label: (label || "").slice(0, 80), ts: Date.now() });
+  saveSessions(list);
+  renderSessionMenu();
+}
+function relTime(ts){
+  const s = Math.max(0, Math.round((Date.now() - ts) / 1000));
+  if (s < 60) return s + "s ago";
+  const m = Math.round(s / 60); if (m < 60) return m + "m ago";
+  const h = Math.round(m / 60); if (h < 24) return h + "h ago";
+  return Math.round(h / 24) + "d ago";
+}
+function renderSessionMenu(){
+  const menu = $("session-menu"), list = loadSessions();
+  menu.innerHTML = "";
+  if (!list.length){ const d = document.createElement("div"); d.className = "empty"; d.textContent = "no sessions yet"; menu.appendChild(d); return; }
+  for (const s of list){
+    const b = document.createElement("button");
+    b.className = "sess-item" + (s.id === sessionId ? " active" : "");
+    b.innerHTML = `<span class="label"></span><span class="meta"></span>`;
+    b.querySelector(".label").textContent = s.label || "(no prompt)";
+    b.querySelector(".meta").textContent = s.id.slice(0, 14) + " · " + relTime(s.ts);
+    b.addEventListener("click", () => { $("session-menu").hidden = true; switchSession(s.id); });
+    menu.appendChild(b);
+  }
+}
+// Switch the live view to a past session and replay its full history.
+function switchSession(id){
+  if (!id || id === sessionId) return;
+  timeline.innerHTML = ""; rawlog.innerHTML = ""; messages.clear(); tools.clear();
+  lastEventId = null; pendingEl = null;
+  resetUsage(); setStatus("idle"); setComposerEnabled(true);
+  sessionId = id;
+  $("sid").textContent = id.slice(0, 14);
+  renderSessionMenu();
+  connect(-1); // replay everything from the server's buffer, then live-tail
+}
+$("sid-btn").addEventListener("click", (e) => {
+  e.stopPropagation();
+  const menu = $("session-menu");
+  if (menu.hidden){ renderSessionMenu(); menu.hidden = false; } else menu.hidden = true;
+});
+document.addEventListener("click", (e) => {
+  const menu = $("session-menu"), btn = $("sid-btn");
+  if (!menu.hidden && !menu.contains(e.target) && !btn.contains(e.target)) menu.hidden = true;
+});
+
+// ---- Token / cost display ---------------------------------------------------
+function fmtTokens(n){
+  n = Number(n) || 0;
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + "M";
+  if (n >= 1e3) return (n / 1e3).toFixed(1) + "k";
+  return String(n);
+}
+function resetUsage(){ $("tok").textContent = "—"; $("cost").textContent = "—"; $("tok").removeAttribute("title"); $("cost").removeAttribute("title"); }
+function updateUsage(u){
+  if (!u) return;
+  $("tok").textContent = `${fmtTokens(u.inputTokens)}↑ ${fmtTokens(u.outputTokens)}↓`;
+  $("tok").title = `input ${u.inputTokens||0} · output ${u.outputTokens||0} · cache read ${u.cacheReadTokens||0} · cache write ${u.cacheCreationTokens||0}`;
+  $("cost").textContent = (u.costUsd == null) ? "n/a" : "$" + Number(u.costUsd).toFixed(4);
+  if (u.costSource) $("cost").title = "cost source: " + u.costSource;
+}
 
 const messages = new Map();  // messageId -> {el, buf}
 const tools = new Map();     // toolCallId -> {el, argsEl, resultEl, buf}
@@ -226,6 +337,16 @@ function toolHint(args){
 
 function scroll(){ timeline.scrollTop = timeline.scrollHeight; }
 
+// Render assistant markdown to HTML with marked, then sanitize with DOMPurify
+// (loaded from CDN in <head>, pinned + SRI). marked does NOT sanitize, and
+// model/tool output can carry injected HTML, so the DOMPurify pass is required —
+// never innerHTML the raw marked output. Falls back to null (caller uses plain
+// text) if the CDN scripts didn't load, so a message never renders as raw HTML.
+function renderMarkdown(src){
+  if (typeof marked === "undefined" || typeof DOMPurify === "undefined") return null;
+  return DOMPurify.sanitize(marked.parse(String(src), { breaks: true }));
+}
+
 function setComposerEnabled(on){
   $("prompt").disabled = !on;
   $("send").disabled = !on;
@@ -246,7 +367,7 @@ function handle(ev){
         note(`state: model=${ev.snapshot.model}, tools=[${(ev.snapshot.tools||[]).join(", ")}]`); }
       break;
     case "TEXT_MESSAGE_START": clearPending(); messageBubble(ev.messageId, ev.role || "assistant"); break;
-    case "TEXT_MESSAGE_CONTENT": { const m = messageBubble(ev.messageId, "assistant"); m.buf += ev.delta; m.body.textContent = m.buf; scroll(); break; }
+    case "TEXT_MESSAGE_CONTENT": { const m = messageBubble(ev.messageId, "assistant"); m.buf += ev.delta; const html = renderMarkdown(m.buf); if (html == null) m.body.textContent = m.buf; else m.body.innerHTML = html; scroll(); break; }
     case "TEXT_MESSAGE_END": break;
     case "TOOL_CALL_START": clearPending(); toolCard(ev.toolCallId, ev.toolCallName); break;
     case "TOOL_CALL_ARGS": { const t = toolCard(ev.toolCallId, "?"); t.buf += ev.delta; t.argsEl.textContent = t.buf; scroll(); break; }
@@ -258,7 +379,10 @@ function handle(ev){
       t.el.classList.add("done"); // ✓ on the summary
       scroll(); break;
     }
-    case "CUSTOM": note(`custom(${ev.name}): ${JSON.stringify(ev.value)}`); break;
+    case "CUSTOM":
+      if (ev.name === "claude.usage") updateUsage(ev.value);
+      else note(`custom(${ev.name}): ${JSON.stringify(ev.value)}`);
+      break;
     case "RUN_FINISHED": { clearPending(); setStatus("finished"); setComposerEnabled(true); const d=document.createElement("div"); d.className="final"; d.textContent="✓ finished"; d.title = ev.result ?? ""; timeline.appendChild(d); scroll(); break; }
     case "RUN_ERROR": { clearPending(); setStatus("errored"); setComposerEnabled(true); note(`✗ error: ${ev.message} (${ev.code||""})`); break; }
     // REASONING_* intentionally not rendered (off by default in the translator)
@@ -273,9 +397,21 @@ function connect(fromSeq){
   if (es) es.close();
   const q = fromSeq != null ? `?lastEventId=${fromSeq}` : "";
   es = new EventSource(`/sessions/${sessionId}/events${q}`);
+  let sawMessage = false;
   es.onopen = () => setConn("connected");
-  es.onerror = () => setConn("reconnecting…"); // browser auto-reconnects w/ Last-Event-ID header
+  es.onerror = () => {
+    // A CLOSED state is a fatal response (e.g. 404 — the session no longer
+    // exists because the server restarted); anything else is a transient drop
+    // the browser auto-reconnects from (w/ Last-Event-ID header).
+    if (es.readyState === EventSource.CLOSED){
+      setConn("closed");
+      if (!sawMessage) note("session unavailable — the server may have restarted");
+    } else {
+      setConn("reconnecting…");
+    }
+  };
   es.onmessage = (e) => {
+    sawMessage = true;
     lastEventId = e.lastEventId || lastEventId;
     $("lei").textContent = lastEventId ?? "—";
     const ev = JSON.parse(e.data);
@@ -289,6 +425,7 @@ $("composer").addEventListener("submit", async (e) => {
   const prompt = $("prompt").value.trim();
   if (!prompt) return;
   timeline.innerHTML = ""; rawlog.innerHTML = ""; messages.clear(); tools.clear(); lastEventId = null;
+  resetUsage();
 
   // Echo the prompt as a user bubble, clear + lock the composer, show a waiting hint.
   messageBubble("user-input", "user").body.textContent = prompt;
@@ -308,6 +445,7 @@ $("composer").addEventListener("submit", async (e) => {
     if (!res.ok){ clearPending(); note("failed to start session: " + await res.text()); setComposerEnabled(true); return; }
     ({ sessionId } = await res.json());
     $("sid").textContent = sessionId.slice(0, 14);
+    addSession(sessionId, prompt);
     connect(null);
   } catch (err){
     clearPending(); note("request failed: " + err.message); setComposerEnabled(true);

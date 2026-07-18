@@ -38,6 +38,7 @@ import { dirname, join } from "node:path";
 import { ClaudeAgentSession } from "./claude/agent.ts";
 import { Translator } from "./translate/translator.ts";
 import { SessionRegistry } from "./session/registry.ts";
+import { createWorkspace } from "./session/workspace.ts";
 import { createTelemetry, type Telemetry } from "./telemetry/otel.ts";
 import { startTelemetrySdk, shutdownTelemetrySdk } from "./telemetry/bootstrap.ts";
 import { InMemoryResultStore, toRunRecord, type ResultStore } from "./persistence/results.ts";
@@ -49,6 +50,7 @@ import { verifyState, buildManifest, convertManifestCode, renderManifestForm, is
 import { getServerSecret, verifyLink } from "./auth/connect.ts";
 import { Authorizer, oidcIdentity, oidcEmail, type AuthzResult } from "./auth/authz.ts";
 import { SSE_HEADERS, frameLogged, sseHeartbeat, parseLastEventId } from "./transport/sse.ts";
+import { EventType } from "./types/agui.ts";
 import type { SystemInitEvent } from "./types/streamjson.ts";
 
 const PORT = Number(process.env.PORT ?? 8080);
@@ -145,12 +147,19 @@ async function startSession(opts: StartOpts): Promise<string> {
     ? ((await getValidToken(store, opts.userKey)) ?? undefined)
     : undefined;
 
+  // Each run gets its own writable temp workspace as its cwd — the process cwd
+  // is the read-only /app source tree in the container. Kept (no cleanup); see
+  // session/workspace.ts.
+  const cwd = createWorkspace();
+  console.log(`[bridge] session ${bridgeId} workspace ${cwd}`);
+
   const translator = new Translator();
   const source = new ClaudeAgentSession({
     model,
     allowedTools: opts.allowedTools,
     permissionMode: opts.permissionMode,
     githubToken,
+    cwd,
   });
 
   source.on("event", (ev) => {
@@ -161,7 +170,23 @@ async function startSession(opts: StartOpts): Promise<string> {
     for (const aguiEvent of translator.handle(ev)) registry.append(bridgeId, aguiEvent);
     if (ev.type === "result") {
       registry.setStatus(bridgeId, ev.is_error ? "errored" : "finished");
-      void resultStore.save(toRunRecord(model.id, ev));
+      const rec = toRunRecord(model.id, ev);
+      void resultStore.save(rec);
+      // Surface the run's token usage + cost to the client as a replayable event
+      // (the translator drops usage; RUN_FINISHED carries none). Logged in the
+      // registry so switching back to a finished session restores the figures.
+      registry.append(bridgeId, {
+        type: EventType.CUSTOM,
+        name: "claude.usage",
+        value: {
+          inputTokens: rec.usage?.input_tokens ?? 0,
+          outputTokens: rec.usage?.output_tokens ?? 0,
+          cacheReadTokens: rec.usage?.cache_read_input_tokens ?? 0,
+          cacheCreationTokens: rec.usage?.cache_creation_input_tokens ?? 0,
+          costUsd: rec.costUsd, // reported total_cost_usd, else computed from the pricing table
+          costSource: rec.costSource,
+        },
+      });
       telemetry.endSession(bridgeId);
     }
   });
@@ -382,6 +407,8 @@ async function whoami(req: IncomingMessage, res: ServerResponse): Promise<void> 
       userId, // resolved platform user id (null when anonymous / local dev)
       email: email || null,
       admin: isAdmin(email), // admin is keyed on the verified email (ADMIN_EMAILS)
+      adminConfigured: adminListConfigured(), // whether an admin allowlist exists at all
+
       canSetup: canProvision(email, { allowed, configured: githubConfigured() }), // may provision the App now
       githubConfigured: githubConfigured(),
       githubConnected: Boolean(rec),

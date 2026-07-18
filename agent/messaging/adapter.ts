@@ -20,6 +20,7 @@
 
 import type { AgentAdapter, StreamHooks, StreamOptions } from "@astropods/adapter-core";
 import { ClaudeAgentSession } from "../claude/agent.ts";
+import { ensureWorkspace } from "../session/workspace.ts";
 import { Translator } from "../translate/translator.ts";
 import { resolveModel } from "../config/model.ts";
 import { EventType } from "../types/agui.ts";
@@ -30,6 +31,7 @@ import { getServerSecret, buildConnectUrl } from "../auth/connect.ts";
 
 const CONV_NS = "conv_claude_session"; // conversationId -> claude session_id (for --resume)
 const HINT_NS = "gh_connect_hint"; // conversationId -> "1" once the connect hint has been shown
+const WS_NS = "conv_workspace"; // conversationId -> workspace path (reused across resumed turns)
 
 type Directive = { kind: "connect" } | { kind: "setup"; org?: string } | { kind: "whoami" };
 
@@ -131,6 +133,14 @@ export class ClaudeCodeAdapter implements AgentAdapter {
     const model = resolveModel();
     const resume = (await this.store.kvGet(CONV_NS, options.conversationId)) as string | null;
 
+    // Persist one writable workspace per conversation (reused across resumed
+    // turns), keyed the same way as the resume mapping. On container restart the
+    // temp dir is gone even though --resume survives; ensureWorkspace recreates
+    // an empty dir so the run still works (files from prior turns are lost).
+    const storedWs = (await this.store.kvGet(WS_NS, options.conversationId)) as string | null;
+    const cwd = ensureWorkspace(storedWs);
+    if (cwd !== storedWs) await this.store.kvPut(WS_NS, options.conversationId, cwd);
+
     // Per-user GitHub token, keyed by the messaging identity (options.userId).
     // Injected as GH_TOKEN so git/gh in the Claude child act as this user —
     // the frontend /sessions path does the same, keyed by bridge_uid instead.
@@ -152,6 +162,7 @@ export class ClaudeCodeAdapter implements AgentAdapter {
       permissionMode: "acceptEdits",
       resumeSessionId: resume ?? undefined,
       githubToken,
+      cwd,
     });
 
     await new Promise<void>((resolve) => {
