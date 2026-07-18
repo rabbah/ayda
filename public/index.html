@@ -66,6 +66,10 @@
   #whoami-dl dt { color:var(--muted); }
   #whoami-dl dd { margin:0; word-break:break-all; }
   #whoami-dl dd.ok { color:var(--ok); } #whoami-dl dd.warn { color:#e6b455; }
+  #toast { position:fixed; top:16px; left:50%; transform:translateX(-50%); z-index:20;
+    background:var(--panel); border:1px solid var(--ok); color:var(--fg); border-radius:8px;
+    padding:8px 14px; box-shadow:0 8px 28px rgba(0,0,0,.45); transition:opacity .3s; }
+  #toast[hidden] { display:none; }
 </style>
 </head>
 <body>
@@ -81,6 +85,8 @@
   <a id="gh-setup" class="chip chip-btn" href="/api/setup/github/start" title="Create & configure the GitHub App (admin only)" hidden>Set up GitHub App</a>
   <button id="whoami-btn" class="chip chip-btn" title="Show my identity (like /whoami in chat)">whoami</button>
 </header>
+
+<div id="toast" hidden></div>
 
 <div id="whoami-panel" hidden>
   <button id="whoami-close" title="Close">✕</button>
@@ -139,6 +145,17 @@ async function refreshGh(){
   } catch { gh.textContent = "?"; }
 }
 refreshGh();
+
+// Just returned from the GitHub connect flow (server redirects here with the
+// hint). Flash a brief confirmation, then strip the param so a reload/back
+// doesn't re-show it. refreshGh() above independently updates the github chip.
+if (new URLSearchParams(location.search).get("github") === "connected") {
+  const t = $("toast");
+  t.textContent = "✓ GitHub connected";
+  t.hidden = false;
+  setTimeout(() => { t.hidden = true; }, 4000);
+  history.replaceState(null, "", location.pathname);
+}
 
 // Identity panel — the browser counterpart to chat's /whoami. Fetches the
 // resolved platform identity + GitHub state from /api/whoami and renders it.

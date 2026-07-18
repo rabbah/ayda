@@ -333,7 +333,10 @@ async function githubCallback(url: URL, res: ServerResponse): Promise<void> {
     console.log(
       `[github] connected ${rec.githubLogin ?? "?"}${installationId ? ` (installation ${installationId})` : " — no installation_id; token has no repo access until the App is installed"}`,
     );
-    sendPage(res, 200, "GitHub connected", `Signed in as ${rec.githubLogin ?? "your account"}. You can return to your chat.`);
+    // Land back on the app frontend rather than a dead-end confirmation page. The
+    // `github=connected` hint lets the UI flash a brief note; refreshGh() also
+    // reflects the connected state in the github chip on load.
+    res.writeHead(302, { Location: "/?github=connected" }).end();
   } catch (e) {
     console.error(`[github] code exchange failed: ${(e as Error).message}`);
     sendPage(res, 502, "Connection failed", "GitHub OAuth exchange failed. Please try /connect-github again.");
