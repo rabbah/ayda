@@ -10,7 +10,7 @@
  *   GET  /api/whoami               -> { userId, email, admin, github... } (browser /whoami)
  *   GET  /api/setup/status         -> { configured, appSlug }
  *   GET  /api/setup/github/start   -> manifest auto-POST page (admin-email gated)
- *   GET  /api/setup/github/callback-> manifest-code exchange; stores App creds
+ *   GET  /api/setup/github/callback-> manifest-code exchange; stores App creds; -> install flow
  *
  * GitHub App provisioning is web-driven: an admin (ADMIN_EMAILS, matched against
  * the ALB-verified email) clicks "Set up GitHub App" in the UI, and the two
@@ -47,6 +47,7 @@ import { verifyState, buildManifest, convertManifestCode, renderManifestForm, is
 import { getServerSecret, verifyLink } from "./auth/connect.ts";
 import { Authorizer, oidcIdentity, oidcEmail, type AuthzResult } from "./auth/authz.ts";
 import { SSE_HEADERS, frameLogged, sseHeartbeat, parseLastEventId } from "./transport/sse.ts";
+import type { SystemInitEvent } from "./types/streamjson.ts";
 
 const PORT = Number(process.env.PORT ?? 8080);
 const PUBLIC_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "public");
@@ -152,7 +153,7 @@ async function startSession(opts: StartOpts): Promise<string> {
 
   source.on("event", (ev) => {
     if (ev.type === "system" && "subtype" in ev && ev.subtype === "init") {
-      claudeSessionIds.set(bridgeId, ev.session_id);
+      claudeSessionIds.set(bridgeId, (ev as SystemInitEvent).session_id);
     }
     telemetry.onEvent(bridgeId, ev);
     for (const aguiEvent of translator.handle(ev)) registry.append(bridgeId, aguiEvent);
@@ -239,10 +240,10 @@ function render401(): string {
         <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
       </svg>
     </div>
-    <p class="code">401 · Access denied</p>
+    <p class="code">Access denied</p>
     <h1>You don't have access</h1>
     <p class="msg">Your account isn't authorized to use this agent. If you think this is a mistake, ask an administrator to grant you access.</p>
-    <div class="hint">Signed in but blocked? Access is controlled by the deployment's <b>grants</b>.</div>
+    <div class="hint">Access is controlled by the deployment's <b>grants</b>.</div>
   </main>
 </body></html>`;
 }
@@ -408,7 +409,8 @@ async function setupStart(req: IncomingMessage, url: URL, res: ServerResponse): 
 /**
  * GET /api/setup/github/callback — GitHub redirects here after the App is
  * created. The signed `state` proves the request follows a real start; we
- * exchange the code for the App's credentials and store them.
+ * exchange the code for the App's credentials, store them, and redirect the
+ * admin straight into the install-based connect flow.
  */
 async function setupCallback(url: URL, res: ServerResponse): Promise<void> {
   const code = url.searchParams.get("code");
@@ -421,7 +423,13 @@ async function setupCallback(url: URL, res: ServerResponse): Promise<void> {
     const creds = await convertManifestCode(code);
     await saveAppCreds(store, creds);
     console.log(`[setup] GitHub App '${creds.slug ?? "?"}' provisioned; OAuth is now configured`);
-    sendPage(res, 200, "GitHub App created", "Setup is done. Return to your chat and run /connect-github to connect your account.");
+    // The App now exists and its creds are cached, so chain straight into the
+    // install-based connect flow instead of dead-ending at a "return to chat"
+    // page. /auth/github/login resolves the admin's ALB identity (setup is
+    // web-only, so they're authenticated) and, with the slug now cached, redirects
+    // to GitHub's App-installation repo picker — the admin installs + authorizes
+    // in one continuous flow rather than manually running /connect-github.
+    res.writeHead(302, { Location: "/auth/github/login" }).end();
   } catch (e) {
     console.error(`[setup] manifest conversion failed: ${(e as Error).message}`);
     sendPage(res, 502, "Setup failed", "The GitHub App could not be created. Check the logs and run /setup-github again.");
