@@ -31,10 +31,39 @@ export function resolveModel(env: NodeJS.ProcessEnv = process.env): ResolvedMode
 }
 
 /**
- * Builds the environment for the spawned `claude` process. Talks to Anthropic
- * directly: sets ANTHROPIC_API_KEY (from injected secrets) and ANTHROPIC_MODEL,
- * and deliberately does NOT set ANTHROPIC_BASE_URL. The gateway swap adds the
- * base URL here and nowhere else.
+ * Non-secret host vars the spawned agent genuinely needs to run: find its
+ * binaries (node/git/gh/rg/bash) via PATH, locate config via HOME, write temp
+ * files, and reach the model API (incl. through a corporate proxy / custom CA).
+ * EVERYTHING ELSE in the host env is dropped (see claudeSpawnEnv) so neither the
+ * model nor the tools it runs (e.g. `bash` -> `env`) can read host secrets like
+ * AWS / DB / Astro credentials. The only host secrets forwarded are the model
+ * credential (unavoidable — the CLI reads it from its env to call the API) and,
+ * layered on by the caller, the user's GH_TOKEN.
+ */
+const PASSTHROUGH_ENV = [
+  "PATH", "HOME", "USER", "LOGNAME", "SHELL", "TERM", "TZ",
+  "LANG", "LANGUAGE", "LC_ALL", "LC_CTYPE",
+  "TMPDIR", "TEMP", "TMP",
+  // networking / TLS — needed to reach the model API in some deployments
+  "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY",
+  "http_proxy", "https_proxy", "no_proxy",
+  "NODE_EXTRA_CA_CERTS",
+] as const;
+
+/** A clean base env: only the allowlisted non-secret essentials from the host. */
+function sandboxBaseEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const base: NodeJS.ProcessEnv = {};
+  for (const key of PASSTHROUGH_ENV) if (env[key] != null) base[key] = env[key];
+  return base;
+}
+
+/**
+ * Builds the SANDBOXED environment for the spawned `claude` process: a clean base
+ * (sandboxBaseEnv) plus the model/auth vars only — NOT the full host env, which
+ * the SDK would otherwise hand straight to the child and every tool the model
+ * runs. Direct mode sets ANTHROPIC_API_KEY + ANTHROPIC_MODEL and deliberately
+ * does NOT set ANTHROPIC_BASE_URL; the gateway swap adds the base URL here and
+ * nowhere else.
  */
 export function claudeSpawnEnv(
   model: ResolvedModel,
@@ -63,9 +92,9 @@ export function claudeSpawnEnv(
         "Gateway configured (ANTHROPIC_BASE_URL / ASTRO_GATEWAY_URL) but no non-empty credential — provide ANTHROPIC_AUTH_TOKEN, ASTRO_GATEWAY_API_KEY, or ANTHROPIC_API_KEY.",
       );
     }
-    const childEnv: NodeJS.ProcessEnv = { ...env, ANTHROPIC_BASE_URL: baseUrl, ANTHROPIC_MODEL: model.id };
+    const childEnv: NodeJS.ProcessEnv = { ...sandboxBaseEnv(env), ANTHROPIC_BASE_URL: baseUrl, ANTHROPIC_MODEL: model.id };
     childEnv.ANTHROPIC_AUTH_TOKEN = token; // Authorization: Bearer (so the SDK has a credential)
-    delete childEnv.ANTHROPIC_API_KEY; // never send x-api-key
+    delete childEnv.ANTHROPIC_API_KEY; // defensive: the sandboxed base never carries it — never send x-api-key
     // The Astro gateway is Bifrost, which reads the virtual key ONLY from the
     // `x-bf-vk` header — it ignores Authorization/x-api-key (probed: both return
     // "virtual key is required"; x-bf-vk returns "virtual key not found" for a
@@ -101,7 +130,7 @@ export function claudeSpawnEnv(
       "ANTHROPIC_API_KEY is not set (expected from secrets/identity injection), and no gateway (ANTHROPIC_BASE_URL / ASTRO_GATEWAY_URL) is configured.",
     );
   }
-  return { ...env, ANTHROPIC_API_KEY: apiKey, ANTHROPIC_MODEL: model.id };
+  return { ...sandboxBaseEnv(env), ANTHROPIC_API_KEY: apiKey, ANTHROPIC_MODEL: model.id };
 }
 
 /** Redacted, log-safe description of the auth situation. Never returns the secret. */
