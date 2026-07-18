@@ -7,6 +7,7 @@
  *   GET  /auth/github/login        -> 302 to GitHub App authorize (?link=<t> connects a chat user)
  *   GET  /auth/github/callback     -> code exchange; stores the user's token
  *   GET  /auth/github/status       -> { connected, login, configured }
+ *   GET  /api/whoami               -> { userId, email, admin, github... } (browser /whoami)
  *   GET  /api/setup/status         -> { configured, appSlug }
  *   GET  /api/setup/github/start   -> manifest auto-POST page (setup-link gated)
  *   GET  /api/setup/github/callback-> manifest-code exchange; stores App creds
@@ -42,8 +43,9 @@ import { resolveModel, describeAuth } from "./config/model.ts";
 import { createStore, type Store } from "./store/index.ts";
 import { authorizeUrl, exchangeCode, getValidToken } from "./auth/github-app.ts";
 import { githubConfigured, getAppCreds, saveAppCreds, loadAppCreds } from "./auth/app-config.ts";
-import { verifyState, buildManifest, convertManifestCode, renderManifestForm } from "./auth/setup.ts";
+import { verifyState, buildManifest, convertManifestCode, renderManifestForm, isAdmin } from "./auth/setup.ts";
 import { getServerSecret, verifyLink } from "./auth/connect.ts";
+import { Authorizer, oidcIdentity, oidcEmail, type AuthzResult } from "./auth/authz.ts";
 import { SSE_HEADERS, frameLogged, sseHeartbeat, parseLastEventId } from "./transport/sse.ts";
 
 const PORT = Number(process.env.PORT ?? 8080);
@@ -58,6 +60,8 @@ const claudeSessionIds = new Map<string, string>();
 const pendingStates = new Map<string, string>();
 let telemetry: Telemetry;
 let store: Store;
+/** Manual-authz client: resolves the platform user id the sidecar keys chat on. */
+const authorizer = new Authorizer();
 
 /* ---------------- cookies / client identity ---------------- */
 
@@ -80,6 +84,41 @@ function ensureUid(req: IncomingMessage, res: ServerResponse): string {
   // TODO: sign the cookie so a client can't spoof another user's identity.
   res.setHeader("Set-Cookie", `bridge_uid=${uid}; HttpOnly; Path=/; SameSite=Lax; Max-Age=31536000`);
   return uid;
+}
+
+/**
+ * Resolve the identity a browser request acts as, keyed the SAME way chat is.
+ *
+ * In a deployment the ALB injects `x-amzn-oidc-identity`; we run it through the
+ * manual-authz endpoint and use the returned platform `user_id` — the exact key
+ * the messaging sidecar uses (StreamOptions.userId). So a GitHub token connected
+ * over chat is found here for the same person, and vice versa.
+ *
+ * Locally (no ASTRO_AUTHZ_TOKEN / no ALB headers) authorize() is a no-op allow
+ * with no userId, and we fall back to the bridge_uid cookie so dev isn't blocked.
+ * An authenticated-but-unresolved or anonymous request also falls back to the
+ * cookie for its token-storage key. `allowed:false` means the grants table
+ * denied this user — callers should refuse rather than fall back.
+ */
+async function resolveIdentity(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<{ allowed: boolean; userKey: string; userId: string | null; email: string }> {
+  const identityId = oidcIdentity(req);
+  const email = oidcEmail(req);
+  let authz: AuthzResult;
+  try {
+    authz = await authorizer.authorize(identityId);
+  } catch {
+    // Fail closed, matching the sidecar: an authz error is a denial.
+    return { allowed: false, userKey: "", userId: null, email };
+  }
+  if (!authz.allowed) return { allowed: false, userKey: "", userId: authz.userId ?? null, email };
+  const userId = authz.userId ?? (identityId || null);
+  // Prefer the resolved platform id; fall back to the cookie for local dev /
+  // anonymous so those requests still have a stable per-browser token key.
+  const userKey = userId ?? ensureUid(req, res);
+  return { allowed: true, userKey, userId, email };
 }
 
 /* ---------------- session bridging ---------------- */
@@ -248,10 +287,39 @@ function sendPage(res: ServerResponse, status: number, title: string, body: stri
 }
 
 async function githubStatus(req: IncomingMessage, res: ServerResponse): Promise<void> {
-  const uid = readCookie(req, "bridge_uid");
-  const rec = uid ? await store.getGithubToken(uid) : null;
+  // Key the lookup by the resolved platform identity (same as chat), falling
+  // back to the bridge_uid cookie for local dev / anonymous browsers.
+  const { userKey } = await resolveIdentity(req, res);
+  const rec = userKey ? await store.getGithubToken(userKey) : null;
   res.writeHead(200, { "Content-Type": "application/json" }).end(
     JSON.stringify({ configured: githubConfigured(), connected: Boolean(rec), login: rec?.githubLogin ?? null }),
+  );
+}
+
+/**
+ * GET /api/whoami — the browser counterpart to the chat `/whoami` directive.
+ * Reports the caller's resolved identity and GitHub connection state so the
+ * frontend can render the same info the messaging adapter replies with.
+ */
+async function whoami(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  const { allowed, userKey, userId, email } = await resolveIdentity(req, res);
+  const rec = allowed && githubConfigured() && userKey ? await store.getGithubToken(userKey) : null;
+  const github = !githubConfigured()
+    ? "not set up on this agent"
+    : rec
+      ? `connected as ${rec.githubLogin ?? "your account"}`
+      : "not connected (run /connect-github in chat)";
+  res.writeHead(200, { "Content-Type": "application/json" }).end(
+    JSON.stringify({
+      allowed,
+      userId, // resolved platform user id (null when anonymous / local dev)
+      email: email || null,
+      admin: userId ? isAdmin(userId) : false,
+      githubConfigured: githubConfigured(),
+      githubConnected: Boolean(rec),
+      githubLogin: rec?.githubLogin ?? null,
+      github, // human-readable summary, mirrors the chat /whoami line
+    }),
   );
 }
 
@@ -361,6 +429,10 @@ async function main(): Promise<void> {
       void githubStatus(req, res);
       return;
     }
+    if (req.method === "GET" && url.pathname === "/api/whoami") {
+      void whoami(req, res);
+      return;
+    }
     if (req.method === "GET" && url.pathname === "/api/setup/status") {
       res.writeHead(200, { "Content-Type": "application/json" }).end(
         JSON.stringify({
@@ -387,12 +459,16 @@ async function main(): Promise<void> {
           try {
             const b = JSON.parse(body || "{}");
             if (!b.prompt) return void res.writeHead(400).end("prompt required");
-            const uid = ensureUid(req, res);
+            // Resolve + authorize the caller the same way the sidecar does; the
+            // GitHub token is keyed by the resolved platform id so git/gh act as
+            // the same identity the user connected in chat.
+            const { allowed, userKey } = await resolveIdentity(req, res);
+            if (!allowed) return void res.writeHead(403).end("forbidden");
             const sessionId = await startSession({
               prompt: b.prompt,
               allowedTools: b.allowedTools ?? ["Read", "Edit", "Bash", "Grep"],
               permissionMode: b.permissionMode ?? "acceptEdits",
-              userKey: uid,
+              userKey,
             });
             res.writeHead(201, { "Content-Type": "application/json" }).end(JSON.stringify({ sessionId }));
           } catch (e) {
