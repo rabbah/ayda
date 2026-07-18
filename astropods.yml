@@ -22,8 +22,9 @@ agent:
     messaging: true
   # Route model calls through the Astro AI Gateway instead of a personal key.
   # Injects ASTRO_GATEWAY_URL + ASTRO_GATEWAY_API_KEY (virtual key). config/model.ts
-  # maps these to ANTHROPIC_BASE_URL + ANTHROPIC_AUTH_TOKEN, so Claude Code hits
-  # the gateway's /v1/messages endpoint (→ Bedrock).
+  # maps these to the gateway's /anthropic endpoint (→ Bedrock). Opt out per-deploy
+  # by setting the optional ANTHROPIC_API_KEY input below — that bypasses the
+  # gateway and calls Anthropic directly.
   astro_ai_gateway: true
 
 inputs:
@@ -40,6 +41,17 @@ inputs:
     name: ADMIN_USER_IDS
     datatype: string
     description: "Comma-separated messaging user IDs allowed to run /setup-github"
+    display-as: short-text
+  # Optional opt-out of the Astro AI Gateway (see astro_ai_gateway above). Provide
+  # your own Anthropic API key and model calls go DIRECTLY to api.anthropic.com
+  # with it, bypassing the gateway/Bedrock. Leave unset to use the gateway
+  # (default). In config/model.ts a set ANTHROPIC_API_KEY takes precedence over the
+  # injected ASTRO_GATEWAY_* and switches claudeSpawnEnv to direct mode.
+  ANTHROPIC_API_KEY:
+    name: ANTHROPIC_API_KEY
+    datatype: string
+    secret: true
+    description: "Optional: use this Anthropic API key directly and bypass the Astro AI Gateway"
     display-as: short-text
 
 knowledge:

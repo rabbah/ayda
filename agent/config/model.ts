@@ -40,20 +40,20 @@ export function claudeSpawnEnv(
   model: ResolvedModel,
   env: NodeJS.ProcessEnv = process.env,
 ): NodeJS.ProcessEnv {
-  // Precedence: explicit ANTHROPIC_BASE_URL > Astro managed gateway (ASTRO_GATEWAY_*) > direct key.
-  
-  // Astro's gateway is a Bifrost proxy whose `/anthropic` endpoint accepts
-  // native Anthropic requests and routes them to its Bedrock model_list — so
-  // Claude Code can use the gateway base URL directly (it appends /v1/messages).
-  // No personal Anthropic key; the tenant virtual key authenticates and drives
-  // per-key spend. IMPORTANT: model.id must match a gateway model_name
-  // (claude-opus-4-8 / claude-sonnet-4-6 / claude-haiku-4-5), NOT a dated id.
-  // (`drop_params: true` on the gateway may silently drop Bedrock-unsupported
-  // fields — validate thinking/tool-use over a real gateway; see README.)
-  const astroGatewayUrl = `${env.ASTRO_GATEWAY_URL}/anthropic`;
+  // Precedence: explicit ANTHROPIC_BASE_URL > direct ANTHROPIC_API_KEY (opt-out) >
+  // Astro managed gateway (ASTRO_GATEWAY_*).
+  //
+  // Astro's gateway is a Bifrost proxy whose `/anthropic` endpoint accepts native
+  // Anthropic requests and routes to its Bedrock model_list (model.id is bedrock/-
+  // prefixed below). Supplying your own ANTHROPIC_API_KEY OPTS OUT of the gateway
+  // and talks to Anthropic directly with that key (bare model id). An explicit
+  // ANTHROPIC_BASE_URL still wins over both.
+  const apiKey = env.ANTHROPIC_API_KEY;
+  // Use the Astro gateway only when it's injected AND no personal key was provided.
+  const astroGatewayUrl =
+    env.ASTRO_GATEWAY_URL && !apiKey ? `${env.ASTRO_GATEWAY_URL}/anthropic` : undefined;
   const baseUrl = env.ANTHROPIC_BASE_URL ?? astroGatewayUrl;
   const authToken = env.ANTHROPIC_AUTH_TOKEN ?? (astroGatewayUrl ? env.ASTRO_GATEWAY_API_KEY : undefined);
-  const apiKey = env.ANTHROPIC_API_KEY;
 
   if (baseUrl) {
     // `||` so empty strings fall through to the next credential source.
