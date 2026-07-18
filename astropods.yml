@@ -51,6 +51,7 @@ inputs:
     name: ANTHROPIC_API_KEY
     datatype: string
     secret: true
+    optional: true
     description: "Optional: use this Anthropic API key directly and bypass the Astro AI Gateway"
     display-as: short-text
 
