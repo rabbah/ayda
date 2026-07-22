@@ -56,6 +56,17 @@ inputs:
     optional: true
     description: "Optional: use this Anthropic API key directly and bypass the Astro AI Gateway"
     display-as: short-text
+  # Max concurrent Claude runs. Each run is a `claude` child process (CPU+memory);
+  # messaging turns route through this limiter, so LOWERING it (e.g. 1–2) is the
+  # main lever to reduce memory pressure on the sandbox when its container can't
+  # be sized up. Default 3.
+  MAX_CONCURRENT_RUNS:
+    name: MAX_CONCURRENT_RUNS
+    datatype: number
+    optional: true
+    default: "3"
+    description: "Max concurrent Claude runs (each is a child process). Lower to 1–2 to ease sandbox memory pressure."
+    display-as: short-text
 
 knowledge:
   # Durable store for per-user GitHub OAuth tokens (access + refresh + expiry)

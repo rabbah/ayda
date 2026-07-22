@@ -29,10 +29,16 @@ import { join } from "node:path";
 import { ClaudeAgentSession } from "../agent/claude/agent.ts";
 import { ensureRepo, type RepoSpec } from "../agent/session/repo.ts";
 import { startWorkspaceGc } from "../agent/session/workspace.ts";
+import { Semaphore } from "../agent/concurrency.ts";
 import type { ResolvedModel } from "../agent/config/model.ts";
 
 const PORT = Number(process.env.PORT ?? 3000);
 const ROOT = process.env.WORKSPACE_ROOT ?? "/data/workspaces";
+// Cap concurrent `claude` children in THIS sandbox so it can't exhaust its
+// (non-bumpable) container memory. This is a backstop beyond the agent's
+// per-process runLimiter — it also bounds load when several agent replicas call
+// one shared sandbox. Lower SANDBOX_MAX_CONCURRENT if the container is tight.
+const sandboxLimiter = new Semaphore(Number(process.env.SANDBOX_MAX_CONCURRENT ?? "3"));
 
 /** Deterministic per-conversation workspace dir (reused across turns). */
 function workspaceFor(key: string): string {
@@ -102,6 +108,19 @@ async function handleQuery(req: IncomingMessage, res: ServerResponse): Promise<v
   });
   const send = (frame: unknown) => res.write(`data: ${JSON.stringify(frame)}\n\n`);
 
+  // Headers are already sent, so the client holds the connection open while we
+  // wait for a concurrency slot; every exit path goes through end() to release it.
+  let ended = false;
+  let acquired = false;
+  const end = () => {
+    if (ended) return;
+    ended = true;
+    if (acquired) sandboxLimiter.release();
+    res.end();
+  };
+  await sandboxLimiter.acquire();
+  acquired = true;
+
   const ws = workspaceFor(workspaceKey);
   let cwd = ws;
   const repo = b.repo as RepoSpec | undefined;
@@ -111,7 +130,7 @@ async function handleQuery(req: IncomingMessage, res: ServerResponse): Promise<v
     } catch (e) {
       send({ t: "error", message: `checkout failed: ${(e as Error).message}` });
       send({ t: "exit", code: 1 });
-      res.end();
+      end();
       return;
     }
   }
@@ -130,12 +149,6 @@ async function handleQuery(req: IncomingMessage, res: ServerResponse): Promise<v
     userId: b.userId as string | undefined,
   });
 
-  let ended = false;
-  const end = () => {
-    if (ended) return;
-    ended = true;
-    res.end();
-  };
   source.on("event", (ev) => send({ t: "event", e: ev }));
   source.on("spawnError", (err) => send({ t: "error", message: err.message }));
   source.on("exit", (code) => {
