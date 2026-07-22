@@ -158,6 +158,11 @@
 const $ = (id) => document.getElementById(id);
 const timeline = $("timeline"), rawlog = $("rawlog");
 let es = null, sessionId = null, lastEventId = null, pendingEl = null;
+// AG-UI seqs already rendered into the timeline. The timeline isn't cleared on
+// an SSE reconnect, so a replayed event we've already shown must be skipped —
+// otherwise a reconnect loop re-appends the whole buffer over and over. Reset
+// wherever the timeline is cleared (switch / new session).
+const renderedSeqs = new Set();
 
 // The raw AG-UI event inspector (right pane) is a dev tool, hidden by default.
 // Reveal it with ?debug — e.g. http://localhost:8080/?debug
@@ -260,7 +265,7 @@ function renderSessionMenu(){
 function switchSession(id){
   if (!id || id === sessionId) return;
   timeline.innerHTML = ""; rawlog.innerHTML = ""; messages.clear(); tools.clear();
-  lastEventId = null; pendingEl = null;
+  lastEventId = null; pendingEl = null; renderedSeqs.clear();
   resetUsage(); setStatus("idle"); setComposerEnabled(true);
   sessionId = id;
   $("sid").textContent = id.slice(0, 14);
@@ -271,7 +276,7 @@ function switchSession(id){
 function newSession(){
   if (es){ es.close(); es = null; }
   sessionId = null; lastEventId = null; pendingEl = null;
-  timeline.innerHTML = ""; rawlog.innerHTML = ""; messages.clear(); tools.clear();
+  timeline.innerHTML = ""; rawlog.innerHTML = ""; messages.clear(); tools.clear(); renderedSeqs.clear();
   resetUsage(); setStatus("idle"); setComposerEnabled(true);
   $("sid").textContent = "—"; $("lei").textContent = "—";
   renderSessionMenu();
@@ -434,6 +439,14 @@ function connect(fromSeq){
   };
   es.onmessage = (e) => {
     sawMessage = true;
+    // Skip anything already rendered: a reconnect can replay events we've shown
+    // (the server resumes from Last-Event-ID, but the boundary or a forced -1
+    // replay can overlap). Without this, a reconnect loop duplicates the timeline.
+    const seq = Number(e.lastEventId);
+    if (Number.isFinite(seq)) {
+      if (renderedSeqs.has(seq)) return;
+      renderedSeqs.add(seq);
+    }
     lastEventId = e.lastEventId || lastEventId;
     $("lei").textContent = lastEventId ?? "—";
     const ev = JSON.parse(e.data);
@@ -462,7 +475,7 @@ $("composer").addEventListener("submit", async (e) => {
   // starts a NEW session. Only a new session clears the timeline + usage.
   const following = !!sessionId;
   if (!following){
-    timeline.innerHTML = ""; rawlog.innerHTML = ""; messages.clear(); tools.clear(); lastEventId = null;
+    timeline.innerHTML = ""; rawlog.innerHTML = ""; messages.clear(); tools.clear(); lastEventId = null; renderedSeqs.clear();
     resetUsage();
   }
   addUserBubble(prompt);

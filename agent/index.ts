@@ -656,8 +656,16 @@ async function main(): Promise<void> {
 
     const m = url.pathname.match(/^\/sessions\/([^/]+)\/events$/);
     if (req.method === "GET" && m) {
+      // Prefer the browser's Last-Event-ID header over the URL query param. On an
+      // automatic EventSource reconnect the URL is unchanged (it may still carry
+      // the initial ?lastEventId=-1), but the browser sends Last-Event-ID with the
+      // last delivered seq — honour that so a reconnect resumes from the gap
+      // instead of re-replaying the whole log (which duplicated the client's
+      // timeline on every reconnect). The query param is the first-connect cursor.
+      const headerSeq = parseLastEventId(req.headers["last-event-id"]); // -1 if absent
       const q = url.searchParams.get("lastEventId");
-      const lastSeq = q != null ? Number.parseInt(q, 10) : parseLastEventId(req.headers["last-event-id"]);
+      const querySeq = q != null ? Number.parseInt(q, 10) : -1;
+      const lastSeq = headerSeq >= 0 ? headerSeq : querySeq;
       return streamEvents(decodeURIComponent(m[1]), Number.isFinite(lastSeq) ? lastSeq : -1, req, res);
     }
 
