@@ -16,11 +16,14 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { createInterface, type Interface } from "node:readline";
 import { claudeSpawnEnv, type ResolvedModel } from "../config/model.ts";
+import { DEFAULT_DISALLOWED_TOOLS } from "./agent.ts";
 import type { StreamJsonEvent, UserInputMessage } from "../types/streamjson.ts";
 
 export interface SupervisorOptions {
   model: ResolvedModel;
-  allowedTools: string[]; // e.g. ["Read","Edit","Bash","Grep"]
+  allowedTools: string[]; // e.g. ["Read","Edit","Write","Bash","Grep","Glob"]
+  /** Tools removed from the model's context; defaults to DEFAULT_DISALLOWED_TOOLS. */
+  disallowedTools?: string[];
   permissionMode?: string; // e.g. "acceptEdits"
   /** Resume an existing Claude session instead of starting fresh. */
   resumeSessionId?: string;
@@ -66,6 +69,7 @@ export class ClaudeSupervisor extends EventEmitter<Events> {
       ...(this.opts.includePartialMessages ?? true ? ["--include-partial-messages"] : []),
       "--permission-mode", this.opts.permissionMode ?? "acceptEdits",
       "--allowedTools", this.opts.allowedTools.join(","),
+      "--disallowedTools", (this.opts.disallowedTools ?? DEFAULT_DISALLOWED_TOOLS).join(","),
       "--model", effectiveModel,
       ...(this.opts.resumeSessionId ? ["--resume", this.opts.resumeSessionId] : []),
     ];
