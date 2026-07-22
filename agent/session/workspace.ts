@@ -12,7 +12,7 @@
  * overridable via WORKSPACE_ROOT.
  */
 
-import { mkdtempSync, mkdirSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, existsSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -31,4 +31,14 @@ export function createWorkspace(prefix = "ada-"): string {
  */
 export function ensureWorkspace(path: string | null): string {
   return path && existsSync(path) ? path : createWorkspace();
+}
+
+/** Best-effort removal of a session workspace and its contents (on delete). */
+export function removeWorkspace(path: string | null | undefined): void {
+  if (!path) return;
+  try {
+    rmSync(path, { recursive: true, force: true });
+  } catch {
+    /* best-effort — the dir may already be gone */
+  }
 }

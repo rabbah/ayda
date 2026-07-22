@@ -51,6 +51,18 @@ export class SessionRegistry {
     return this.sessions.has(sessionId);
   }
 
+  /**
+   * Drop a session and its event log. Any still-open SSE connection stops
+   * receiving new events (its subscription is detached); the client sees the
+   * stream go quiet. Returns false if the session was already gone.
+   */
+  delete(sessionId: string): boolean {
+    const s = this.sessions.get(sessionId);
+    if (!s) return false;
+    s.emitter.removeAllListeners();
+    return this.sessions.delete(sessionId);
+  }
+
   /** Append an emitted AG-UI event; returns it with its assigned seq. */
   append(sessionId: string, event: AguiEvent): LoggedEvent {
     const s = this.get(sessionId);

@@ -4,6 +4,7 @@
  *   GET  /                         -> built-in AG-UI test client (public/index.html)
  *   POST /sessions {prompt,...}    -> {sessionId} (starts a new multi-turn session)
  *   POST /sessions/:id/messages    -> continue a session with a follow-up turn
+ *   DELETE /sessions/:id           -> drop a session (log, workspace, resume map)
  *   GET  /sessions/:id/events      -> SSE AG-UI stream; honours Last-Event-ID
  *   GET  /auth/github/login        -> 302 to GitHub App authorize (?link=<t> connects a chat user)
  *   GET  /auth/github/callback     -> code exchange; stores the user's token
@@ -39,7 +40,7 @@ import { dirname, join } from "node:path";
 import { ClaudeAgentSession } from "./claude/agent.ts";
 import { Translator } from "./translate/translator.ts";
 import { SessionRegistry } from "./session/registry.ts";
-import { createWorkspace } from "./session/workspace.ts";
+import { createWorkspace, removeWorkspace } from "./session/workspace.ts";
 import { createTelemetry, type Telemetry } from "./telemetry/otel.ts";
 import { startTelemetrySdk, shutdownTelemetrySdk } from "./telemetry/bootstrap.ts";
 import { InMemoryResultStore, toRunRecord, type ResultStore } from "./persistence/results.ts";
@@ -651,6 +652,26 @@ async function main(): Promise<void> {
           }
         })();
       });
+      return;
+    }
+
+    const mDel = url.pathname.match(/^\/sessions\/([^/]+)$/);
+    if (req.method === "DELETE" && mDel) {
+      void (async () => {
+        // Authorize the same way the other session routes do.
+        const { allowed } = await resolveIdentity(req, res);
+        if (!allowed) return void res.writeHead(403).end("forbidden");
+        const bridgeId = decodeURIComponent(mDel[1]);
+        // Drop all server-side state for the session: the event log (detaches any
+        // open SSE), the resume mapping, the telemetry span ctx, and the sandbox
+        // workspace on disk.
+        const existed = registry.delete(bridgeId);
+        claudeSessionIds.delete(bridgeId);
+        removeWorkspace(workspaces.get(bridgeId));
+        workspaces.delete(bridgeId);
+        telemetry.endSession(bridgeId);
+        res.writeHead(existed ? 204 : 404).end();
+      })();
       return;
     }
 

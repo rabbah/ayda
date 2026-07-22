@@ -29,6 +29,8 @@
   #timeline { overflow:auto; padding:16px; }
   #side { display:none; border-left:1px solid var(--line); overflow:auto; padding:16px; background:#0c0e12; }
   body.debug #side { display:block; }
+  .chip-debug { display:none; }            /* debug-only chips (e.g. lastEventId) — shown with ?debug */
+  body.debug .chip-debug { display:inline; }
   form { flex:0 0 auto; display:flex; gap:8px; padding:12px 16px; border-top:1px solid var(--line); background:var(--panel); }
   input[type=text] { flex:1; background:var(--panel); border:1px solid var(--line); color:var(--fg); border-radius:8px; padding:8px 10px; font:inherit; }
   button { background:var(--panel); border:1px solid var(--line); color:var(--fg); border-radius:8px; padding:8px 12px; cursor:pointer; font:inherit; }
@@ -101,8 +103,17 @@
   .sess-item { display:block; width:100%; text-align:left; background:none; border:1px solid transparent;
     border-radius:8px; padding:8px 10px; cursor:pointer; color:var(--fg); font:inherit; }
   .sess-item:hover { background:#0c0e12; }
-  .sess-item.active { border-color:var(--accent); }
   .sess-item.sess-new { color:var(--accent); font-weight:600; margin-bottom:4px; }
+  /* Past-session row: clickable label/meta on the left, delete (✕) on the right.
+     A row (not a nested button) so the ✕ isn't a button-inside-a-button. */
+  .sess-row { display:flex; align-items:center; border:1px solid transparent; border-radius:8px; }
+  .sess-row:hover { background:#0c0e12; }
+  .sess-row.active { border-color:var(--accent); }
+  .sess-row .sess-item { flex:1; min-width:0; width:auto; border:none; border-radius:8px 0 0 8px; }
+  .sess-row .sess-item:hover { background:none; }
+  .sess-del { flex:0 0 auto; background:none; border:none; color:var(--muted); cursor:pointer;
+    font:inherit; line-height:1; padding:8px 12px; border-radius:0 8px 8px 0; }
+  .sess-del:hover { color:var(--err); }
   .sess-item .label { display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .sess-item .meta { display:block; color:var(--muted); font-size:11px; margin-top:2px; }
   #toast { position:fixed; top:16px; left:50%; transform:translateX(-50%); z-index:20;
@@ -120,7 +131,7 @@
   <span class="chip">tokens <b id="tok">—</b></span>
   <span class="chip">cost <b id="cost">—</b></span>
   <span class="chip">conn <b id="conn">—</b></span>
-  <span class="chip">lastEventId <b id="lei">—</b></span>
+  <span class="chip chip-debug">lastEventId <b id="lei">—</b></span>
   <button id="settings-btn" class="chip chip-btn" title="Settings" aria-label="Settings">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
   </button>
@@ -252,14 +263,37 @@ function renderSessionMenu(){
   menu.appendChild(nw);
   if (!list.length){ const d = document.createElement("div"); d.className = "empty"; d.textContent = "no past sessions"; menu.appendChild(d); return; }
   for (const s of list){
+    const row = document.createElement("div");
+    row.className = "sess-row" + (s.id === sessionId ? " active" : "");
     const b = document.createElement("button");
-    b.className = "sess-item" + (s.id === sessionId ? " active" : "");
+    b.className = "sess-item";
     b.innerHTML = `<span class="label"></span><span class="meta"></span>`;
     b.querySelector(".label").textContent = s.label || "(no prompt)";
     b.querySelector(".meta").textContent = s.id.slice(0, 14) + " · " + relTime(s.ts);
     b.addEventListener("click", () => { $("session-menu").hidden = true; switchSession(s.id); });
-    menu.appendChild(b);
+    const del = document.createElement("button");
+    del.className = "sess-del"; del.textContent = "✕";
+    del.title = "Delete session"; del.setAttribute("aria-label", "Delete session");
+    del.addEventListener("click", (e) => { e.stopPropagation(); deleteSession(s.id); });
+    row.appendChild(b); row.appendChild(del);
+    menu.appendChild(row);
   }
+}
+// Delete a session: free its server-side state, drop it from local history, and
+// detach the view if it's the one on screen. The menu stays open so you can
+// delete several. Best-effort on the server (it may have restarted / GC'd).
+async function deleteSession(id){
+  try { await fetch(`/sessions/${encodeURIComponent(id)}`, { method: "DELETE" }); }
+  catch { /* still remove it locally */ }
+  saveSessions(loadSessions().filter(s => s.id !== id));
+  if (id === sessionId){
+    if (es){ es.close(); es = null; }
+    sessionId = null; lastEventId = null; pendingEl = null;
+    timeline.innerHTML = ""; rawlog.innerHTML = ""; messages.clear(); tools.clear(); renderedSeqs.clear();
+    resetUsage(); setStatus("idle"); setComposerEnabled(true);
+    $("sid").textContent = "—"; $("lei").textContent = "—";
+  }
+  renderSessionMenu();
 }
 // Switch the live view to a past session and replay its full history.
 function switchSession(id){
