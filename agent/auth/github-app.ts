@@ -21,6 +21,7 @@ import { getAppCreds, type GithubAppCreds } from "./app-config.ts";
 const AUTHORIZE_URL = "https://github.com/login/oauth/authorize";
 const TOKEN_URL = "https://github.com/login/oauth/access_token";
 const USER_URL = "https://api.github.com/user";
+const INSTALLATIONS_URL = "https://api.github.com/user/installations";
 const REFRESH_BUFFER_MS = 5 * 60 * 1000; // refresh when <5 min of access-token life remains
 
 function requireCreds(): GithubAppCreds {
@@ -105,15 +106,20 @@ export async function refresh(
   );
 }
 
+/** Authenticated GET against the GitHub REST API with a user access token. */
+function ghGet(url: string, token: string, fetchImpl: typeof fetch): Promise<Response> {
+  return fetchImpl(url, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/vnd.github+json",
+      "User-Agent": "claude-code-agui-bridge",
+    },
+  });
+}
+
 async function attachUser(rec: GithubTokenRecord, fetchImpl: typeof fetch): Promise<GithubTokenRecord> {
   try {
-    const res = await fetchImpl(USER_URL, {
-      headers: {
-        Authorization: `Bearer ${rec.accessToken}`,
-        Accept: "application/vnd.github+json",
-        "User-Agent": "claude-code-agui-bridge",
-      },
-    });
+    const res = await ghGet(USER_URL, rec.accessToken, fetchImpl);
     if (res.ok) {
       const u = (await res.json()) as { login?: string; id?: number };
       rec.githubLogin = u.login ?? null;
@@ -150,4 +156,87 @@ export async function getValidToken(
   // Persist the rotated pair BEFORE returning — the old refresh token is now dead.
   await store.putGithubToken(userKey, refreshed);
   return refreshed.accessToken;
+}
+
+/**
+ * A GitHub App installation the connected user can access, plus the repos that
+ * installation grants — what the Settings panel shows as "connected repos".
+ */
+export interface ConnectedInstallation {
+  installationId: number;
+  account: string | null; // org/user login the App is installed on
+  targetType: string | null; // "User" | "Organization"
+  repositorySelection: string | null; // "all" | "selected"
+  repos: string[]; // ["owner/name", ...]
+  totalRepos: number; // GitHub's total_count (may exceed repos.length — see cap below)
+  manageUrl: string; // GitHub settings page to add/remove repos for this installation
+}
+
+interface InstallationsResponse {
+  installations?: Array<{
+    id: number;
+    account?: { login?: string } | null;
+    target_type?: string;
+    repository_selection?: string;
+  }>;
+}
+
+interface ReposResponse {
+  total_count?: number;
+  repositories?: Array<{ full_name?: string }>;
+}
+
+/**
+ * List the App installations the connected user can access and the repos each
+ * grants. Uses the stored user-to-server token (getValidToken handles refresh)
+ * against GET /user/installations + /user/installations/{id}/repositories — no
+ * App private key needed. Returns [] when the user hasn't connected.
+ *
+ * Only the first page (100) of installations and of each installation's repos
+ * is fetched — ample here, and `totalRepos` lets the UI flag any truncation.
+ * Best-effort: a non-OK response skips that installation rather than throwing,
+ * mirroring attachUser's tolerant enrichment.
+ */
+export async function listConnectedRepos(
+  store: Store,
+  userKey: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<ConnectedInstallation[]> {
+  const token = await getValidToken(store, userKey, fetchImpl);
+  if (!token) return [];
+
+  const res = await ghGet(`${INSTALLATIONS_URL}?per_page=100`, token, fetchImpl);
+  if (!res.ok) return [];
+  const data = (await res.json()) as InstallationsResponse;
+
+  const out: ConnectedInstallation[] = [];
+  for (const inst of data.installations ?? []) {
+    const account = inst.account?.login ?? null;
+    const targetType = inst.target_type ?? null;
+    let repos: string[] = [];
+    let totalRepos = 0;
+    try {
+      const rr = await ghGet(`${INSTALLATIONS_URL}/${inst.id}/repositories?per_page=100`, token, fetchImpl);
+      if (rr.ok) {
+        const rd = (await rr.json()) as ReposResponse;
+        repos = (rd.repositories ?? []).map((r) => r.full_name).filter((n): n is string => Boolean(n));
+        totalRepos = rd.total_count ?? repos.length;
+      }
+    } catch {
+      /* best-effort: leave repos empty for this installation */
+    }
+    out.push({
+      installationId: inst.id,
+      account,
+      targetType,
+      repositorySelection: inst.repository_selection ?? null,
+      repos,
+      totalRepos,
+      manageUrl:
+        targetType === "Organization" && account
+          ? `https://github.com/organizations/${account}/settings/installations/${inst.id}`
+          : `https://github.com/settings/installations/${inst.id}`,
+    });
+  }
+  return out;
 }

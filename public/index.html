@@ -90,6 +90,9 @@
   #settings-dl dt { color:var(--muted); }
   #settings-dl dd { margin:0; word-break:break-all; }
   #settings-dl dd.ok { color:var(--ok); } #settings-dl dd.warn { color:#e6b455; }
+  #settings-dl .repo-list { margin:0; padding-left:1.1em; }
+  #settings-dl .repo-list li { word-break:break-all; }
+  #settings-dl .repo-note { color:var(--muted); font-size:12px; margin-top:4px; }
   #settings-actions:not(:empty) { margin-top:14px; padding-top:12px; border-top:1px solid var(--line);
     display:flex; flex-direction:column; gap:8px; }
   .settings-action { display:block; text-align:center; text-decoration:none; color:var(--fg);
@@ -200,10 +203,41 @@ function row(dl, term, value, cls){
   const dd = document.createElement("dd"); dd.textContent = value; if (cls) dd.classList.add(cls);
   dl.appendChild(dt); dl.appendChild(dd);
 }
-function actionLink(container, label, href){
+function actionLink(container, label, href, external){
   const a = document.createElement("a");
   a.className = "settings-action"; a.href = href; a.textContent = label;
+  // External (github.com) links open in a new tab so the user keeps the app open.
+  if (external){ a.target = "_blank"; a.rel = "noopener"; }
   container.appendChild(a);
+}
+// Fetch the connected repos/installations and render them under the github row,
+// plus a per-installation "Manage on GitHub" link (or an "Add a repository" link
+// when connected but not installed anywhere). Best-effort: a failure just omits
+// the list rather than breaking the panel.
+async function renderRepos(dl, actions){
+  const gh = await (await fetch("/api/github/repos")).json();
+  const insts = gh.installations || [];
+  const repos = insts.flatMap((i) => i.repos || []);
+  const total = insts.reduce((n, i) => n + (i.totalRepos || 0), 0);
+  if (repos.length){
+    const dt = document.createElement("dt"); dt.textContent = "repos";
+    const dd = document.createElement("dd");
+    const ul = document.createElement("ul"); ul.className = "repo-list";
+    for (const r of repos){ const li = document.createElement("li"); li.textContent = r; ul.appendChild(li); }
+    dd.appendChild(ul);
+    if (total > repos.length){
+      const note = document.createElement("div"); note.className = "repo-note";
+      note.textContent = `showing ${repos.length} of ${total}`; dd.appendChild(note);
+    }
+    dl.appendChild(dt); dl.appendChild(dd);
+  }
+  if (insts.length){
+    for (const i of insts){
+      actionLink(actions, `Manage ${i.account || "repos"} on GitHub →`, i.manageUrl, true);
+    }
+  } else if (gh.appSlug){
+    actionLink(actions, "Add a repository on GitHub →", `https://github.com/apps/${gh.appSlug}/installations/new`, true);
+  }
 }
 async function showSettings(){
   const panel = $("settings-panel"), dl = $("settings-dl"), actions = $("settings-actions");
@@ -223,6 +257,9 @@ async function showSettings(){
       if (w.canSetup) actionLink(actions, "Set up GitHub App", "/api/setup/github/start");
     } else if (!w.githubConnected){
       actionLink(actions, "Connect GitHub", "/auth/github/login");
+    } else {
+      // Connected: list the repos the App reaches + a link to add/remove them.
+      try { await renderRepos(dl, actions); } catch { /* omit list on failure */ }
     }
   } catch { row(dl, "error", "could not load settings", "warn"); }
 }

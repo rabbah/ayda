@@ -10,6 +10,7 @@
  *   GET  /auth/github/callback     -> code exchange; stores the user's token
  *   GET  /auth/github/status       -> { connected, login, configured }
  *   GET  /api/whoami               -> { userId, email, admin, github... } (browser /whoami)
+ *   GET  /api/github/repos         -> { connected, installations: [{ account, repos, manageUrl }], appSlug }
  *   GET  /api/setup/status         -> { configured, appSlug }
  *   GET  /api/setup/github/start   -> manifest auto-POST page (provision-gated)
  *   GET  /api/setup/github/callback-> manifest-code exchange; stores App creds; -> install flow
@@ -46,7 +47,7 @@ import { startTelemetrySdk, shutdownTelemetrySdk } from "./telemetry/bootstrap.t
 import { InMemoryResultStore, toRunRecord, type ResultStore } from "./persistence/results.ts";
 import { resolveModel, describeAuth } from "./config/model.ts";
 import { createStore, type Store } from "./store/index.ts";
-import { authorizeUrl, exchangeCode, getValidToken } from "./auth/github-app.ts";
+import { authorizeUrl, exchangeCode, getValidToken, listConnectedRepos } from "./auth/github-app.ts";
 import { githubConfigured, getAppCreds, saveAppCreds, loadAppCreds } from "./auth/app-config.ts";
 import { verifyState, buildManifest, convertManifestCode, renderManifestForm, isAdmin, adminListConfigured, canProvision } from "./auth/setup.ts";
 import { getServerSecret, verifyLink } from "./auth/connect.ts";
@@ -475,6 +476,33 @@ async function whoami(req: IncomingMessage, res: ServerResponse): Promise<void> 
   );
 }
 
+/**
+ * GET /api/github/repos — the App installations the connected user can reach and
+ * the repos each grants, so the Settings panel can show "connected repos" and a
+ * link to add/remove them on GitHub. Reads GitHub live via the stored user token
+ * (see listConnectedRepos); `appSlug` lets the UI offer an install link when the
+ * user is connected but the App isn't installed anywhere yet.
+ */
+async function githubRepos(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  const { allowed, userKey } = await resolveIdentity(req, res);
+  if (!allowed) {
+    res.writeHead(403).end("forbidden");
+    return;
+  }
+  const appSlug = getAppCreds()?.slug ?? null;
+  const rec = githubConfigured() && userKey ? await store.getGithubToken(userKey) : null;
+  if (!rec) {
+    res.writeHead(200, { "Content-Type": "application/json" }).end(
+      JSON.stringify({ configured: githubConfigured(), connected: false, installations: [], appSlug }),
+    );
+    return;
+  }
+  const installations = await listConnectedRepos(store, userKey);
+  res.writeHead(200, { "Content-Type": "application/json" }).end(
+    JSON.stringify({ configured: true, connected: true, installations, appSlug }),
+  );
+}
+
 /* ---------------- GitHub App setup (App-Manifest) routes ---------------- */
 
 /**
@@ -600,6 +628,10 @@ async function main(): Promise<void> {
     }
     if (req.method === "GET" && url.pathname === "/api/whoami") {
       void whoami(req, res);
+      return;
+    }
+    if (req.method === "GET" && url.pathname === "/api/github/repos") {
+      void githubRepos(req, res);
       return;
     }
     if (req.method === "GET" && url.pathname === "/api/setup/status") {
