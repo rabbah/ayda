@@ -565,12 +565,18 @@ $("composer").addEventListener("submit", async (e) => {
 
   try {
     if (following){
-      // Follow-up: the turn streams in over the session's already-open SSE.
       const res = await fetch(`/sessions/${sessionId}/messages`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ prompt }),
       });
       if (!res.ok){ clearPending(); note("failed to continue session: " + await res.text()); setComposerEnabled(true); }
+      // Don't trust the existing SSE to still be live: a proxy can silently drop
+      // an idle stream half-open (readyState stays OPEN, so EventSource never
+      // reconnects), and the turn would then stream into a dead socket — its
+      // events reaching only the registry, leaving the UI stuck until a manual
+      // refresh. Re-establish the stream, resuming from lastEventId (client
+      // dedupe keeps it gap-free), so this turn is guaranteed a live connection.
+      else connect(lastEventId != null ? Number(lastEventId) : -1);
     } else {
       const res = await fetch("/sessions", {
         method: "POST", headers: { "Content-Type": "application/json" },

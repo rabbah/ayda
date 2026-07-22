@@ -282,7 +282,11 @@ function streamEvents(sessionId: string, lastSeq: number, req: IncomingMessage, 
     seen.add(logged.seq);
     res.write(frameLogged(logged));
   });
-  const heartbeat = setInterval(() => res.write(sseHeartbeat()), 15_000);
+  // Keep-alive: short enough that a proxy is less likely to reap the idle stream
+  // and that a dead socket surfaces promptly (a failed write ends the response →
+  // req "close" → unsubscribe). The client also re-establishes the stream on each
+  // follow-up turn, so delivery doesn't hinge on this alone.
+  const heartbeat = setInterval(() => res.write(sseHeartbeat()), 10_000);
   req.on("close", () => {
     clearInterval(heartbeat);
     unsubscribe();
