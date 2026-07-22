@@ -230,6 +230,42 @@ concurrency + abort), `agent/session/repo.ts` (`work on` checkout), `agent/sessi
 (per-thread workspace + GC), `agent/concurrency.ts` (`runLimiter`),
 `agent/sandbox-client.ts` + `sandbox/index.ts` (the isolated runner).
 
+### Tool policy, lean mode & limits
+
+The spawned `claude` is deliberately locked down and slimmed (in `agent/claude/agent.ts`,
+applied to **both** the in-process and sandbox paths, and to `supervisor.ts`). This
+keeps it cheap, predictable, and within a container we can't resize — **but it
+removes capabilities on purpose. If a future feature seems "missing," it's likely here.**
+
+**Tools removed from the model** (`DEFAULT_DISALLOWED_TOOLS`, via `disallowedTools` —
+note `allowedTools` only *auto-approves*, it does **not** restrict availability):
+
+| Removed | Why |
+|---|---|
+| `WebSearch`, `WebFetch` | Anthropic server tools — **dead on the Bedrock-backed gateway** (would error). Need web data? Give the agent a client-side tool. |
+| `Task`, `Workflow` | Sub-agent / multi-agent orchestration. Each sub-agent is another `claude` process → memory blow-up. Also means **no sub-agent transcripts** to review. |
+| `CronCreate/Delete/List`, `ScheduleWakeup`, `SendMessage`, `DesignSync`, `ReportFindings`, `Skill`, `EnterWorktree`/`ExitWorktree`, `Task*` board tools | Platform/harness tools irrelevant to a coding turn. |
+
+Auto-approved coding tools: `Read, Edit, Write, Bash, Grep, Glob`.
+
+**Lean startup** (query options): `settingSources: []` (no `.claude/` skills, subagents,
+slash-commands, or `CLAUDE.md` loaded), `skills: []`, `mcpServers: {}` + `strictMcpConfig: true`
+(no MCP discovery). Cuts cold-start and per-process memory. **Limitations this imposes:**
+no user/project skills, **no MCP servers**, no custom slash-commands, no `CLAUDE.md` memory —
+if you later want any of those, you must re-enable the relevant source here. (The bundled
+`Explore`/`Plan`/`general-purpose` subagents can't be fully unloaded via options, but can't
+spawn either, since `Task` is denied. The `claude_code` preset, gateway model, and
+multi-turn agentic loop are kept.)
+
+**Concurrency / memory tuning:**
+- `MAX_CONCURRENT_RUNS` (astropods input, default 3) — caps concurrent runs agent-side;
+  messaging routes through it, so **lower it to 1–2 to ease sandbox memory pressure**.
+- `SANDBOX_MAX_CONCURRENT` (default 3) — sandbox-side backstop bounding `claude` children
+  in the sandbox container, independent of how many agent replicas call it.
+- Not yet addressed: the ~78s **cold-start** (spawn + gateway/model init) and the fact that
+  the sandbox container can't be sized via `astropods.yml`. A `NODE_OPTIONS` heap cap and
+  partial clones (`--filter=blob:none`) are candidate follow-ups.
+
 ## stream-json → AG-UI mapping
 
 | Claude Code stream-json | AG-UI event(s) |

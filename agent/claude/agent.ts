@@ -172,6 +172,15 @@ export class ClaudeAgentSession extends EventEmitter<Events> {
       disallowedTools: this.opts.disallowedTools ?? DEFAULT_DISALLOWED_TOOLS,
       permissionMode: this.opts.permissionMode ?? "acceptEdits",
       includePartialMessages: this.opts.includePartialMessages ?? true,
+      // Run LEAN to cut the child's cold-start + memory: don't scan the filesystem
+      // for skills / subagents / slash-commands / CLAUDE.md (settingSources: []),
+      // load no skills, and skip MCP discovery. Ayda is a code agent (Read/Edit/
+      // Write/Bash/Grep/Glob) — none of that is used. The claude_code preset,
+      // model, and agentic loop (maxTurns) are deliberately KEPT.
+      settingSources: [],
+      skills: [],
+      mcpServers: {},
+      strictMcpConfig: true,
       systemPrompt: {
         type: "preset",
         preset: "claude_code",
