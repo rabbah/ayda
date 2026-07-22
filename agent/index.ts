@@ -51,6 +51,7 @@ import { authorizeUrl, exchangeCode, getValidToken, listConnectedRepos } from ".
 import { githubConfigured, getAppCreds, saveAppCreds, loadAppCreds } from "./auth/app-config.ts";
 import { verifyState, buildManifest, convertManifestCode, renderManifestForm, isAdmin, adminListConfigured, canProvision } from "./auth/setup.ts";
 import { getServerSecret, verifyLink } from "./auth/connect.ts";
+import { githubPromptGuidance } from "./github-guidance.ts";
 import { Authorizer, oidcIdentity, oidcEmail, type AuthzResult } from "./auth/authz.ts";
 import { SSE_HEADERS, frameLogged, sseHeartbeat, parseLastEventId } from "./transport/sse.ts";
 import { EventType } from "./types/agui.ts";
@@ -163,6 +164,8 @@ async function runTurn(bridgeId: string, cwd: string, opts: TurnOpts): Promise<v
     allowedTools: opts.allowedTools,
     permissionMode: opts.permissionMode,
     githubToken,
+    // Tell the model GitHub auth is managed via /connect-github (no PATs).
+    systemPromptAppend: githubPromptGuidance({ configured: githubConfigured(), connected: !!githubToken }),
     cwd,
     userId: opts.userId,
     // Resume the prior Claude session (if any) so follow-up turns keep context.
@@ -713,7 +716,7 @@ async function main(): Promise<void> {
             if (!allowed) return void res.writeHead(403).end("forbidden");
             const sessionId = await startSession({
               prompt: b.prompt,
-              allowedTools: b.allowedTools ?? ["Read", "Edit", "Bash", "Grep"],
+              allowedTools: b.allowedTools ?? ["Read", "Edit", "Write", "Bash", "Grep", "Glob"],
               permissionMode: b.permissionMode ?? "acceptEdits",
               userKey,
               userId: userId ?? undefined,
@@ -745,7 +748,7 @@ async function main(): Promise<void> {
             if (!allowed) return void res.writeHead(403).end("forbidden");
             await continueSession(bridgeId, {
               prompt: b.prompt,
-              allowedTools: b.allowedTools ?? ["Read", "Edit", "Bash", "Grep"],
+              allowedTools: b.allowedTools ?? ["Read", "Edit", "Write", "Bash", "Grep", "Glob"],
               permissionMode: b.permissionMode ?? "acceptEdits",
               userKey,
               userId: userId ?? undefined,

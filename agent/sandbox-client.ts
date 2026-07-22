@@ -82,6 +82,8 @@ export interface SandboxSessionOptions {
   permissionMode?: string;
   resumeSessionId?: string;
   githubToken?: string;
+  /** Extra instructions appended to the claude_code preset (e.g. GitHub guidance). */
+  systemPromptAppend?: string;
   /** Stable per-conversation key; the sandbox owns the workspace dir for it. */
   workspaceKey: string;
   /** Repo bound to this thread (one per thread); the sandbox checks it out. */
@@ -111,6 +113,12 @@ export class SandboxSession extends EventEmitter<Events> {
 
   sendUserMessage(text: string): void {
     void this.run(text).catch((err) => {
+      // An abort is intentional cancellation (a superseded/stopped turn), not a
+      // failure — end quietly instead of surfacing it as an error.
+      if (this.controller.signal.aborted || (err as Error)?.name === "AbortError") {
+        this.emit("exit", 0);
+        return;
+      }
       this.emit("spawnError", err as Error);
       this.emit("exit", 1);
     });
@@ -143,6 +151,7 @@ export class SandboxSession extends EventEmitter<Events> {
         permissionMode: this.opts.permissionMode ?? "acceptEdits",
         resumeSessionId: this.opts.resumeSessionId,
         githubToken: this.opts.githubToken,
+        systemPromptAppend: this.opts.systemPromptAppend,
         repo: this.opts.repo,
         userId: this.opts.userId,
       }),

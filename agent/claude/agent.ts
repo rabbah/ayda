@@ -26,9 +26,46 @@ import { EventEmitter } from "node:events";
 import { claudeSpawnEnv, type ResolvedModel } from "../config/model.ts";
 import type { StreamJsonEvent } from "../types/streamjson.ts";
 
+/**
+ * Tools REMOVED from the model's context (bare deny rules). `allowedTools` only
+ * auto-approves — it does NOT limit availability — so without this the claude_code
+ * preset exposes its full toolset. We keep the coding essentials (Read/Edit/Write/
+ * Bash/Grep/Glob/NotebookEdit) and strip:
+ *   - WebSearch/WebFetch — Anthropic server tools, dead on the Bedrock-backed gateway
+ *   - Task/Workflow — sub-agent + multi-agent orchestration (cost multipliers)
+ *   - platform/harness tools irrelevant to one coding turn (cron, scheduling,
+ *     messaging, skills, worktree, design, the Task* board tools)
+ * Applied by default in BOTH paths: the in-process session and the sandbox (which
+ * constructs this same class). Override via AgentSessionOptions.disallowedTools.
+ */
+export const DEFAULT_DISALLOWED_TOOLS = [
+  "WebSearch",
+  "WebFetch",
+  "Task",
+  "Workflow",
+  "Skill",
+  "SendMessage",
+  "DesignSync",
+  "ReportFindings",
+  "ScheduleWakeup",
+  "CronCreate",
+  "CronDelete",
+  "CronList",
+  "EnterWorktree",
+  "ExitWorktree",
+  "TaskCreate",
+  "TaskGet",
+  "TaskList",
+  "TaskOutput",
+  "TaskStop",
+  "TaskUpdate",
+];
+
 export interface AgentSessionOptions {
   model: ResolvedModel;
   allowedTools: string[];
+  /** Tools removed from the model's context; defaults to DEFAULT_DISALLOWED_TOOLS. */
+  disallowedTools?: string[];
   permissionMode?: string;
   resumeSessionId?: string;
   includePartialMessages?: boolean;
@@ -114,9 +151,25 @@ export class ClaudeAgentSession extends EventEmitter<Events> {
       throw new Error(`@astropods/adapter-claude-agent-sdk unavailable: ${(err as Error).message}`);
     }
 
+    // Model/auth/gateway seam, plus this user's GitHub token (if connected) as
+    // GH_TOKEN — git/gh use it via the image's credential helper. Telemetry is
+    // handled by the adapter (OpenInference spans), so no native OTel env here.
+    const childEnv: NodeJS.ProcessEnv = {
+      ...claudeSpawnEnv(this.opts.model),
+      ...(this.opts.githubToken ? { GH_TOKEN: this.opts.githubToken } : {}),
+    };
+    // On the gateway path the effective model id is bedrock/-prefixed and carried
+    // in ANTHROPIC_MODEL by claudeSpawnEnv. The SDK's explicit `model` option
+    // OVERRIDES that env var, so read it back and pass the same id — otherwise a
+    // bare `claude-*` reaches the gateway and is rejected (401/403 "virtual key
+    // not found"). Direct mode leaves ANTHROPIC_MODEL as the bare id, so this is
+    // a no-op there.
+    const effectiveModel = childEnv.ANTHROPIC_MODEL ?? this.opts.model.id;
+
     const options = {
-      model: this.opts.model.id,
+      model: effectiveModel,
       allowedTools: this.opts.allowedTools,
+      disallowedTools: this.opts.disallowedTools ?? DEFAULT_DISALLOWED_TOOLS,
       permissionMode: this.opts.permissionMode ?? "acceptEdits",
       includePartialMessages: this.opts.includePartialMessages ?? true,
       systemPrompt: {
@@ -126,13 +179,7 @@ export class ClaudeAgentSession extends EventEmitter<Events> {
       },
       ...(this.opts.resumeSessionId ? { resume: this.opts.resumeSessionId } : {}),
       ...(this.opts.cwd ? { cwd: this.opts.cwd } : {}),
-      // Model/auth/gateway seam, plus this user's GitHub token (if connected) as
-      // GH_TOKEN — git/gh use it via the image's credential helper. Telemetry is
-      // handled by the adapter (OpenInference spans), so no native OTel env here.
-      env: {
-        ...claudeSpawnEnv(this.opts.model),
-        ...(this.opts.githubToken ? { GH_TOKEN: this.opts.githubToken } : {}),
-      },
+      env: childEnv,
       // DEBUG: capture the CLI's stderr — gateway/API failures (Bifrost "model
       // not found", 4xx, auth) print here and don't always reach the result event.
       stderr: (data: unknown) =>
@@ -149,7 +196,7 @@ export class ClaudeAgentSession extends EventEmitter<Events> {
     await this.withUserTrace(async () => {
       const q = query({ prompt, options });
       this.q = q;
-      console.error(`[claude:run] starting model=${this.opts.model.id}`);
+      console.error(`[claude:run] starting model=${effectiveModel}`);
       // SDK messages mirror the CLI stream-json envelopes; the cast bridges the
       // SDK's typed union to ours so the Translator/telemetry consume them as-is.
       for await (const message of q) {
