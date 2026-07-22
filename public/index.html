@@ -326,7 +326,7 @@ async function deleteSession(id){
   if (id === sessionId){
     if (es){ es.close(); es = null; }
     sessionId = null; lastEventId = null; pendingEl = null;
-    timeline.innerHTML = ""; rawlog.innerHTML = ""; messages.clear(); tools.clear(); renderedSeqs.clear();
+    timeline.innerHTML = ""; rawlog.innerHTML = ""; messages.clear(); tools.clear(); renderedSeqs.clear(); stickToBottom = true;
     resetUsage(); setStatus("idle"); setComposerEnabled(true);
     $("sid").textContent = "—"; $("lei").textContent = "—";
   }
@@ -336,7 +336,7 @@ async function deleteSession(id){
 function switchSession(id){
   if (!id || id === sessionId) return;
   timeline.innerHTML = ""; rawlog.innerHTML = ""; messages.clear(); tools.clear();
-  lastEventId = null; pendingEl = null; renderedSeqs.clear();
+  lastEventId = null; pendingEl = null; renderedSeqs.clear(); stickToBottom = true;
   resetUsage(); setStatus("idle"); setComposerEnabled(true);
   sessionId = id;
   $("sid").textContent = id.slice(0, 14);
@@ -347,7 +347,7 @@ function switchSession(id){
 function newSession(){
   if (es){ es.close(); es = null; }
   sessionId = null; lastEventId = null; pendingEl = null;
-  timeline.innerHTML = ""; rawlog.innerHTML = ""; messages.clear(); tools.clear(); renderedSeqs.clear();
+  timeline.innerHTML = ""; rawlog.innerHTML = ""; messages.clear(); tools.clear(); renderedSeqs.clear(); stickToBottom = true;
   resetUsage(); setStatus("idle"); setComposerEnabled(true);
   $("sid").textContent = "—"; $("lei").textContent = "—";
   renderSessionMenu();
@@ -433,7 +433,15 @@ function toolHint(args){
   return v.length > 64 ? v.slice(0, 61) + "…" : v;
 }
 
-function scroll(){ timeline.scrollTop = timeline.scrollHeight; }
+// Stick-to-bottom: auto-scroll only when the user is already pinned to the
+// bottom (live-tailing). Once they scroll up to read, new content must not yank
+// them back down; scrolling back to the bottom re-arms it. The flag is recomputed
+// on every scroll (user- or programmatic); the threshold absorbs sub-pixel
+// rounding so "close enough" still counts as pinned. Re-armed on timeline clears.
+let stickToBottom = true;
+function atBottom(){ return timeline.scrollHeight - timeline.scrollTop - timeline.clientHeight < 40; }
+timeline.addEventListener("scroll", () => { stickToBottom = atBottom(); });
+function scroll(){ if (stickToBottom) timeline.scrollTop = timeline.scrollHeight; }
 
 // Render assistant markdown to HTML with marked, then sanitize with DOMPurify
 // (loaded from CDN in <head>, pinned + SRI). marked does NOT sanitize, and
@@ -546,7 +554,7 @@ $("composer").addEventListener("submit", async (e) => {
   // starts a NEW session. Only a new session clears the timeline + usage.
   const following = !!sessionId;
   if (!following){
-    timeline.innerHTML = ""; rawlog.innerHTML = ""; messages.clear(); tools.clear(); lastEventId = null; renderedSeqs.clear();
+    timeline.innerHTML = ""; rawlog.innerHTML = ""; messages.clear(); tools.clear(); lastEventId = null; renderedSeqs.clear(); stickToBottom = true;
     resetUsage();
   }
   addUserBubble(prompt);
