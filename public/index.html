@@ -31,10 +31,25 @@
   body.debug #side { display:block; }
   .chip-debug { display:none; }            /* debug-only chips (e.g. lastEventId) — shown with ?debug */
   body.debug .chip-debug { display:inline; }
-  form { flex:0 0 auto; display:flex; gap:8px; padding:12px 16px; border-top:1px solid var(--line); background:var(--panel); }
+  form { flex:0 0 auto; display:flex; flex-direction:column; gap:8px; padding:12px 16px; border-top:1px solid var(--line); background:var(--panel); }
+  .composer-row { display:flex; gap:8px; align-items:center; }
   input[type=text] { flex:1; background:var(--panel); border:1px solid var(--line); color:var(--fg); border-radius:8px; padding:8px 10px; font:inherit; }
   button { background:var(--panel); border:1px solid var(--line); color:var(--fg); border-radius:8px; padding:8px 12px; cursor:pointer; font:inherit; }
   button:hover { border-color:var(--accent); }
+  .icon-btn { display:inline-flex; align-items:center; justify-content:center; padding:8px; color:var(--muted); }
+  .icon-btn:hover { color:var(--fg); }
+  /* Pending attachment chips shown above the input before send. */
+  #attachments { display:flex; flex-wrap:wrap; gap:6px; }
+  #attachments[hidden] { display:none; }
+  .attach-chip { display:inline-flex; align-items:center; gap:6px; font-size:12px; color:var(--fg);
+    background:var(--user); border:1px solid var(--line); border-radius:99px; padding:3px 6px 3px 10px; max-width:260px; }
+  .attach-chip .fname { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .attach-chip .fsize { color:var(--muted); font-size:11px; }
+  .attach-chip .rm { background:none; border:none; color:var(--muted); cursor:pointer; padding:0 2px; line-height:1; font:inherit; }
+  .attach-chip .rm:hover { color:var(--err); }
+  /* Attachment chips echoed inside a sent user bubble. */
+  .bubble .attachments { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+  .bubble .attachments .file { font-size:12px; color:var(--muted); border:1px solid var(--line); border-radius:99px; padding:2px 10px; }
   label.demo { color:var(--muted); display:flex; align-items:center; gap:6px; }
   .bubble { border:1px solid var(--line); border-radius:10px; padding:10px 12px; margin:0 0 12px; white-space:pre-wrap; }
   .bubble.user { background:var(--user); } .bubble.assistant { background:var(--asst); }
@@ -164,8 +179,15 @@
 </main>
 
 <form id="composer">
-  <input id="prompt" type="text" placeholder="Prompt (e.g. bump retries in config.json)" autocomplete="off" />
-  <button id="send" type="submit">Send</button>
+  <div id="attachments" hidden></div>
+  <div class="composer-row">
+    <input id="file-input" type="file" multiple hidden />
+    <button id="attach-btn" type="button" class="icon-btn" title="Attach files" aria-label="Attach files">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
+    </button>
+    <input id="prompt" type="text" placeholder="Prompt (e.g. bump retries in config.json)" autocomplete="off" />
+    <button id="send" type="submit">Send</button>
+  </div>
 </form>
 
 <script>
@@ -526,9 +548,74 @@ function connect(fromSeq){
   };
 }
 
+// ---- Attachments ------------------------------------------------------------
+// Files picked via the paperclip are held client-side until send; on send they're
+// uploaded to /uploads (base64 JSON) to get an uploadId that the turn request
+// carries. The server drops them into the session workspace so the agent can Read
+// them — see agent/session/uploads.ts.
+let pendingFiles = []; // File objects staged in the composer
+function fmtBytes(n){
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + " MB";
+  if (n >= 1e3) return (n / 1e3).toFixed(1) + " KB";
+  return n + " B";
+}
+function renderAttachments(){
+  const box = $("attachments");
+  box.innerHTML = "";
+  box.hidden = pendingFiles.length === 0;
+  pendingFiles.forEach((f, i) => {
+    const chip = document.createElement("span");
+    chip.className = "attach-chip";
+    chip.innerHTML = `<span class="fname"></span><span class="fsize"></span><button type="button" class="rm" title="Remove" aria-label="Remove">✕</button>`;
+    chip.querySelector(".fname").textContent = f.name;
+    chip.querySelector(".fsize").textContent = fmtBytes(f.size);
+    chip.querySelector(".rm").addEventListener("click", () => { pendingFiles.splice(i, 1); renderAttachments(); });
+    box.appendChild(chip);
+  });
+}
+function readAsBase64(file){
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onerror = () => reject(new Error("failed to read " + file.name));
+    // result is a data URL ("data:...;base64,XXXX"); keep only the payload.
+    r.onload = () => resolve(String(r.result).split(",", 2)[1] || "");
+    r.readAsDataURL(file);
+  });
+}
+// Upload the staged files and return an uploadId (or null if none / on failure).
+async function uploadPending(){
+  if (!pendingFiles.length) return null;
+  const files = await Promise.all(pendingFiles.map(async (f) => ({ name: f.name, dataBase64: await readAsBase64(f) })));
+  const res = await fetch("/uploads", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ files }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return (await res.json()).uploadId;
+}
+$("attach-btn").addEventListener("click", () => $("file-input").click());
+$("file-input").addEventListener("change", (e) => {
+  pendingFiles.push(...Array.from(e.target.files || []));
+  e.target.value = ""; // let the same file be re-picked later
+  renderAttachments();
+});
+
 // Each turn's user bubble needs a unique id (a session now has many turns).
 let turnSeq = 0;
-function addUserBubble(text){ messageBubble("user-" + (++turnSeq), "user").body.textContent = text; }
+function addUserBubble(text, files){
+  const m = messageBubble("user-" + (++turnSeq), "user");
+  m.body.textContent = text;
+  if (files && files.length){
+    const wrap = document.createElement("div");
+    wrap.className = "attachments";
+    for (const f of files){
+      const el = document.createElement("span");
+      el.className = "file"; el.textContent = `📎 ${f.name}`;
+      wrap.appendChild(el);
+    }
+    m.el.appendChild(wrap);
+  }
+}
 function showPending(text){
   clearPending();
   pendingEl = document.createElement("div");
@@ -540,7 +627,8 @@ function showPending(text){
 $("composer").addEventListener("submit", async (e) => {
   e.preventDefault();
   const prompt = $("prompt").value.trim();
-  if (!prompt) return;
+  // A turn needs either text or at least one attachment.
+  if (!prompt && !pendingFiles.length) return;
 
   // With an active session a prompt is a FOLLOW-UP turn on it; otherwise it
   // starts a NEW session. Only a new session clears the timeline + usage.
@@ -549,29 +637,47 @@ $("composer").addEventListener("submit", async (e) => {
     timeline.innerHTML = ""; rawlog.innerHTML = ""; messages.clear(); tools.clear(); lastEventId = null; renderedSeqs.clear();
     resetUsage();
   }
-  addUserBubble(prompt);
+  // Snapshot + clear the staged files up front so the composer is ready to reuse.
+  const sentFiles = pendingFiles.slice();
+  addUserBubble(prompt, sentFiles);
   $("prompt").value = "";
+  pendingFiles = []; renderAttachments();
   setComposerEnabled(false);
   setStatus("starting");
-  showPending(following ? "Claude is thinking…" : "starting Claude… (spawning; first tokens can take a few seconds)");
+  showPending(
+    sentFiles.length ? "uploading files…"
+      : following ? "Claude is thinking…"
+      : "starting Claude… (spawning; first tokens can take a few seconds)");
 
   try {
+    // Upload any attachments first; the returned id rides along on the turn.
+    let uploadId = null;
+    if (sentFiles.length){
+      // uploadPending reads from pendingFiles, so restore the snapshot briefly.
+      pendingFiles = sentFiles;
+      try { uploadId = await uploadPending(); }
+      finally { pendingFiles = []; }
+      showPending(following ? "Claude is thinking…" : "starting Claude…");
+    }
+    const payload = { prompt };
+    if (uploadId) payload.uploadIds = [uploadId];
+
     if (following){
       // Follow-up: the turn streams in over the session's already-open SSE.
       const res = await fetch(`/sessions/${sessionId}/messages`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt }),
+        body: JSON.stringify(payload),
       });
       if (!res.ok){ clearPending(); note("failed to continue session: " + await res.text()); setComposerEnabled(true); }
     } else {
       const res = await fetch("/sessions", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt }),
+        body: JSON.stringify(payload),
       });
       if (!res.ok){ clearPending(); note("failed to start session: " + await res.text()); setComposerEnabled(true); return; }
       ({ sessionId } = await res.json());
       $("sid").textContent = sessionId.slice(0, 14);
-      addSession(sessionId, prompt);
+      addSession(sessionId, prompt || (sentFiles.length ? `📎 ${sentFiles.length} file(s)` : ""));
       connect(null);
     }
   } catch (err){

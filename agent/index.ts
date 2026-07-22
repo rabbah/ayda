@@ -2,6 +2,7 @@
  * Wiring / entrypoint (HTTP).
  *
  *   GET  /                         -> built-in AG-UI test client (public/index.html)
+ *   POST /uploads {files[]}        -> {uploadId} (stages attached files for a turn)
  *   POST /sessions {prompt,...}    -> {sessionId} (starts a new multi-turn session)
  *   POST /sessions/:id/messages    -> continue a session with a follow-up turn
  *   DELETE /sessions/:id           -> drop a session (log, workspace, resume map)
@@ -42,6 +43,7 @@ import { ClaudeAgentSession } from "./claude/agent.ts";
 import { Translator } from "./translate/translator.ts";
 import { SessionRegistry } from "./session/registry.ts";
 import { createWorkspace, removeWorkspace } from "./session/workspace.ts";
+import { stageUploads, attachUploads, augmentPrompt, MAX_UPLOAD_BYTES } from "./session/uploads.ts";
 import { createTelemetry, type Telemetry } from "./telemetry/otel.ts";
 import { startTelemetrySdk, shutdownTelemetrySdk } from "./telemetry/bootstrap.ts";
 import { InMemoryResultStore, toRunRecord, type ResultStore } from "./persistence/results.ts";
@@ -138,6 +140,8 @@ interface TurnOpts {
   allowedTools: string[];
   permissionMode: string;
   userKey: string; // bridge_uid, for GitHub token lookup
+  /** Staged upload ids to claim into the workspace before the turn runs. */
+  uploadIds?: string[];
 }
 
 /**
@@ -148,6 +152,18 @@ interface TurnOpts {
  */
 async function runTurn(bridgeId: string, cwd: string, opts: TurnOpts): Promise<void> {
   registry.setStatus(bridgeId, "running");
+
+  // Claim any attached uploads into this session's workspace, then augment the
+  // prompt so the agent knows the files are there. The UI shows the raw prompt;
+  // only the model sees this note.
+  let prompt = opts.prompt;
+  if (opts.uploadIds?.length) {
+    const attached = attachUploads(cwd, opts.uploadIds);
+    if (attached.length) {
+      prompt = augmentPrompt(prompt, attached);
+      console.log(`[bridge] session ${bridgeId} attached ${attached.length} file(s) into ${cwd}`);
+    }
+  }
 
   const model = resolveModel();
   // Resolve a valid GitHub token for this user (refresh if expiring); undefined
@@ -209,7 +225,7 @@ async function runTurn(bridgeId: string, cwd: string, opts: TurnOpts): Promise<v
   });
 
   source.start();
-  source.sendUserMessage(opts.prompt);
+  source.sendUserMessage(prompt);
   source.closeInput(); // one query() per turn; resume carries context to the next
 }
 
@@ -663,6 +679,39 @@ async function main(): Promise<void> {
       return;
     }
 
+    // Stage attached files, returning an upload id the next turn request claims.
+    // JSON body: { files: [{ name, dataBase64 }] } -> { uploadId, files }. Body is
+    // read with a cap (base64 inflates ~33%, so allow headroom over the byte cap).
+    if (req.method === "POST" && url.pathname === "/uploads") {
+      void (async () => {
+        const { allowed } = await resolveIdentity(req, res);
+        if (!allowed) return void res.writeHead(403).end("forbidden");
+        const cap = Math.ceil(MAX_UPLOAD_BYTES * 1.4) + 64 * 1024; // base64 + envelope
+        let body = "";
+        let over = false;
+        req.on("data", (c) => {
+          if (over) return;
+          body += c;
+          if (body.length > cap) {
+            over = true;
+            res.writeHead(413).end("upload too large");
+            req.destroy();
+          }
+        });
+        req.on("end", () => {
+          if (over) return;
+          try {
+            const b = JSON.parse(body || "{}");
+            const result = stageUploads(b.files);
+            res.writeHead(201, { "Content-Type": "application/json" }).end(JSON.stringify(result));
+          } catch (e) {
+            res.writeHead(400).end(`bad request: ${(e as Error).message}`);
+          }
+        });
+      })();
+      return;
+    }
+
     if (req.method === "POST" && url.pathname === "/sessions") {
       let body = "";
       req.on("data", (c) => (body += c));
@@ -670,7 +719,8 @@ async function main(): Promise<void> {
         void (async () => {
           try {
             const b = JSON.parse(body || "{}");
-            if (!b.prompt) return void res.writeHead(400).end("prompt required");
+            const hasUploads = Array.isArray(b.uploadIds) && b.uploadIds.length > 0;
+            if (!b.prompt && !hasUploads) return void res.writeHead(400).end("prompt or files required");
             // Resolve + authorize the caller the same way the sidecar does; the
             // GitHub token is keyed by the resolved platform id so git/gh act as
             // the same identity the user connected in chat.
@@ -681,6 +731,7 @@ async function main(): Promise<void> {
               allowedTools: b.allowedTools ?? ["Read", "Edit", "Bash", "Grep"],
               permissionMode: b.permissionMode ?? "acceptEdits",
               userKey,
+              uploadIds: Array.isArray(b.uploadIds) ? b.uploadIds : undefined,
             });
             res.writeHead(201, { "Content-Type": "application/json" }).end(JSON.stringify({ sessionId }));
           } catch (e) {
@@ -701,7 +752,8 @@ async function main(): Promise<void> {
           try {
             if (!registry.has(bridgeId)) return void res.writeHead(404).end("unknown session");
             const b = JSON.parse(body || "{}");
-            if (!b.prompt) return void res.writeHead(400).end("prompt required");
+            const hasUploads = Array.isArray(b.uploadIds) && b.uploadIds.length > 0;
+            if (!b.prompt && !hasUploads) return void res.writeHead(400).end("prompt or files required");
             // One query() runs at a time per session — refuse overlapping turns.
             const st = registry.status(bridgeId);
             if (st === "running" || st === "starting") return void res.writeHead(409).end("session busy");
@@ -712,6 +764,7 @@ async function main(): Promise<void> {
               allowedTools: b.allowedTools ?? ["Read", "Edit", "Bash", "Grep"],
               permissionMode: b.permissionMode ?? "acceptEdits",
               userKey,
+              uploadIds: Array.isArray(b.uploadIds) ? b.uploadIds : undefined,
             });
             // The follow-up turn streams over the session's already-open SSE.
             res.writeHead(202, { "Content-Type": "application/json" }).end(JSON.stringify({ sessionId: bridgeId }));
