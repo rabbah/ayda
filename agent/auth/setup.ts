@@ -121,7 +121,12 @@ export function buildManifest(secret: string, org?: string, env: NodeJS.ProcessE
     redirect_url: `${base}/api/setup/github/callback`,
     callback_urls: [`${base}/auth/github/callback`],
     setup_url: `${base}/`,
-    public: false,
+    // PUBLIC so any teammate can install it on THEIR repos and connect. A private
+    // App can only be installed by the account that owns it, so other users hit
+    // `/apps/<slug>/installations/new` and get bounced to the App's landing page —
+    // they can't connect. (Public only means "installable by others"; each install
+    // is still explicit and repo-scoped, and the client secret stays secret.)
+    public: true,
     // Installing the App also runs the OAuth authorize in one flow, so a single
     // install grants repo selection + write (contents/pull_requests) AND returns
     // the user token via the callback. Without this, install and OAuth are separate.

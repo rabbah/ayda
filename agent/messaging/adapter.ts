@@ -33,6 +33,7 @@ import type { SessionRegistry } from "../session/registry.ts";
 import { getValidToken } from "../auth/github-app.ts";
 import { githubConfigured } from "../auth/app-config.ts";
 import { getServerSecret, buildConnectUrl } from "../auth/connect.ts";
+import { githubPromptGuidance } from "../github-guidance.ts";
 
 const CONV_NS = "conv_claude_session"; // conversationId -> claude session_id (for --resume)
 const HINT_NS = "gh_connect_hint"; // conversationId -> "1" once the connect hint has been shown
@@ -47,7 +48,11 @@ type Directive =
 
 /** Parse a whole-message directive, or null if the message isn't one. */
 function parseDirective(prompt: string): Directive | null {
-  const t = prompt.trim();
+  // Strip leading Slack mentions: addressing the bot in a channel prepends
+  // `<@U123>` (or `<@U123|name>`), so `@Ayda connect github` arrives as
+  // `<@U123> connect github`. Without this the exact-match directives below never
+  // fire in channels and fall through to a (slow, costly) LLM turn instead.
+  const t = prompt.replace(/^\s*(?:<@[^>]+>\s*)+/, "").trim();
   const lower = t.toLowerCase().replace(/^\//, "");
   if (lower === "whoami") return { kind: "whoami" };
   if (lower === "connect-github" || lower === "connect github") return { kind: "connect" };
@@ -79,7 +84,7 @@ export class ClaudeCodeAdapter implements AgentAdapter {
    *  the conversations the agent handled over Slack/web. */
   private readonly registry?: SessionRegistry;
 
-  constructor(store: Store, allowedTools: string[] = ["Read", "Edit", "Bash", "Grep"], registry?: SessionRegistry) {
+  constructor(store: Store, allowedTools: string[] = ["Read", "Edit", "Write", "Bash", "Grep", "Glob"], registry?: SessionRegistry) {
     this.store = store;
     this.allowedTools = allowedTools;
     this.registry = registry;
@@ -118,7 +123,7 @@ export class ClaudeCodeAdapter implements AgentAdapter {
         ? "not set up on this agent"
         : rec
           ? `connected as ${rec.githubLogin ?? "your account"}`
-          : "not connected (run /connect-github)";
+          : "not connected — send `connect github` to connect";
       reply(
         `Your messaging identity:\n` +
           `• userId: \`${options.userId}\`\n` +
@@ -162,7 +167,7 @@ export class ClaudeCodeAdapter implements AgentAdapter {
       } catch (e) {
         reply(
           `Couldn't check out \`${spec.owner}/${spec.repo}\`: ${(e as Error).message}\n` +
-            (githubToken ? "Make sure I'm installed on that repo." : "Connect GitHub first with `/connect-github`, then try again."),
+            (githubToken ? "Make sure I'm installed on that repo." : "Connect GitHub first — send `connect github` — then try again."),
         );
       }
       return;
@@ -173,7 +178,9 @@ export class ClaudeCodeAdapter implements AgentAdapter {
       return;
     }
     if (!githubConfigured()) {
-      reply("GitHub isn't set up on this agent yet, so there's nothing to connect to.");
+      reply(
+        "GitHub isn't set up on this agent yet. An admin has to set up the GitHub App once — in the web app, open Settings → \"Set up GitHub App\" (it needs your signed-in web identity, so it can't be done from chat). After that, send `connect github` here and I'll give you a link to connect your account.",
+      );
       return;
     }
     const secret = await getServerSecret(this.store);
@@ -196,6 +203,9 @@ export class ClaudeCodeAdapter implements AgentAdapter {
     const model = resolveModel();
     const resume = (await this.store.kvGet(CONV_NS, options.conversationId)) as string | null;
     const githubToken = await this.token(options.userId);
+    // Tell the model how GitHub auth works here so it guides the user to
+    // /connect-github instead of improvising PAT/`gh auth login` advice.
+    const systemPromptAppend = githubPromptGuidance({ configured: githubConfigured(), connected: !!githubToken });
 
     const boundRepo = (await this.store.kvGet(REPO_NS, options.conversationId)) as RepoSpec | null;
     const useSandbox = sandboxEnabled();
@@ -249,6 +259,7 @@ export class ClaudeCodeAdapter implements AgentAdapter {
                 permissionMode: "acceptEdits",
                 resumeSessionId: resume ?? undefined,
                 githubToken,
+                systemPromptAppend,
                 workspaceKey: options.conversationId,
                 repo: boundRepo ?? undefined,
                 userId: options.userId,
@@ -259,6 +270,7 @@ export class ClaudeCodeAdapter implements AgentAdapter {
                 permissionMode: "acceptEdits",
                 resumeSessionId: resume ?? undefined,
                 githubToken,
+                systemPromptAppend,
                 cwd,
                 userId: options.userId,
               });
@@ -286,13 +298,18 @@ export class ClaudeCodeAdapter implements AgentAdapter {
             resolve();
           };
           // A newer message in this thread (or an explicit Stop) aborts the signal;
-          // kill the in-flight claude child so it doesn't race the successor turn.
+          // kill the in-flight claude child and settle SILENTLY — this turn was
+          // superseded, so emit no error/finish (the bridge drives the successor).
           function onAbort() {
             try {
               source.stop();
             } catch {
               /* best effort */
             }
+            if (settled) return;
+            settled = true;
+            cleanup();
+            resolve();
           }
           options.signal?.addEventListener("abort", onAbort, { once: true });
 

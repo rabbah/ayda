@@ -123,6 +123,7 @@ async function handleQuery(req: IncomingMessage, res: ServerResponse): Promise<v
     permissionMode: (b.permissionMode as string) ?? "acceptEdits",
     resumeSessionId: b.resumeSessionId as string | undefined,
     githubToken: b.githubToken as string | undefined,
+    systemPromptAppend: b.systemPromptAppend as string | undefined,
     cwd,
     // Forwarded from the control plane so the run's trace is attributed to the
     // end user (ClaudeAgentSession.withUserTrace tags langfuse.user.id).

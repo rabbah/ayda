@@ -51,6 +51,13 @@ export class ClaudeSupervisor extends EventEmitter<Events> {
   start(): void {
     if (this.child) throw new Error("supervisor already started");
 
+    // On the gateway path the effective model id is bedrock/-prefixed and carried
+    // in ANTHROPIC_MODEL by claudeSpawnEnv. --model OVERRIDES that env var, so pass
+    // the same id back — otherwise a bare `claude-*` reaches the gateway and is
+    // rejected (401/403 "virtual key not found"). Direct mode leaves it bare.
+    const childEnv = claudeSpawnEnv(this.opts.model); // NB: never log this
+    const effectiveModel = childEnv.ANTHROPIC_MODEL ?? this.opts.model.id;
+
     const args = [
       "-p",
       "--input-format", "stream-json",
@@ -59,13 +66,13 @@ export class ClaudeSupervisor extends EventEmitter<Events> {
       ...(this.opts.includePartialMessages ?? true ? ["--include-partial-messages"] : []),
       "--permission-mode", this.opts.permissionMode ?? "acceptEdits",
       "--allowedTools", this.opts.allowedTools.join(","),
-      "--model", this.opts.model.id,
+      "--model", effectiveModel,
       ...(this.opts.resumeSessionId ? ["--resume", this.opts.resumeSessionId] : []),
     ];
 
     const child = spawn(this.opts.bin ?? "claude", args, {
       cwd: this.opts.cwd,
-      env: claudeSpawnEnv(this.opts.model), // NB: never log this
+      env: childEnv,
       stdio: ["pipe", "pipe", "pipe"],
     }) as ChildProcessWithoutNullStreams;
     this.child = child;
