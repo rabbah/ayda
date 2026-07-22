@@ -163,6 +163,9 @@ export class ClaudeCodeAdapter implements AgentAdapter {
       resumeSessionId: resume ?? undefined,
       githubToken,
       cwd,
+      // Same messaging identity used for the GitHub-token lookup above — tags the
+      // run's trace so the Traces page attributes it to this user.
+      userId: options.userId,
     });
 
     await new Promise<void>((resolve) => {
