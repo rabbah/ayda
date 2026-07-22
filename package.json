@@ -11,7 +11,9 @@
     "demo": "node scripts/demo-translate.ts",
     "demo:sse": "node scripts/demo-translate.ts --sse",
     "start": "node agent/index.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "playwright test",
+    "test:ui": "playwright test --ui"
   },
   "dependencies": {
     "@astropods/adapter-claude-agent-sdk": "^0.5.2",
@@ -25,6 +27,7 @@
   },
   "devDependencies": {
     "@ag-ui/core": "^0.0.42",
+    "@playwright/test": "^1.50.0",
     "typescript": "^5.7.0"
   },
   "comments": {

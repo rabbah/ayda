@@ -53,7 +53,7 @@ import { getServerSecret, verifyLink } from "./auth/connect.ts";
 import { Authorizer, oidcIdentity, oidcEmail, type AuthzResult } from "./auth/authz.ts";
 import { SSE_HEADERS, frameLogged, sseHeartbeat, parseLastEventId } from "./transport/sse.ts";
 import { EventType } from "./types/agui.ts";
-import type { SystemInitEvent } from "./types/streamjson.ts";
+import type { SystemInitEvent, StreamJsonEvent } from "./types/streamjson.ts";
 
 const PORT = Number(process.env.PORT ?? 8080);
 const PUBLIC_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "public");
@@ -236,6 +236,31 @@ async function continueSession(bridgeId: string, opts: TurnOpts): Promise<void> 
     workspaces.set(bridgeId, cwd);
   }
   await runTurn(bridgeId, cwd, opts);
+}
+
+/* ---------------- test hooks (AYDA_TEST_HOOKS=1 only) ---------------- */
+
+/**
+ * TEST-ONLY: build a *finished* session by running the recorded read→edit→report
+ * stream-json fixture through the Translator into the registry — the same path
+ * scripts/demo-translate.ts exercises. Lets e2e tests seed a replayable session
+ * (for SSE resume / delete assertions) without a real model call or credential.
+ * Reached only from POST /test/seed, which is gated on AYDA_TEST_HOOKS=1.
+ */
+function seedSession(): { sessionId: string; lastSeq: number } {
+  const fixture = join(dirname(fileURLToPath(import.meta.url)), "..", "fixtures", "read-edit-report.streamjson.jsonl");
+  const bridgeId = `sess_seed_${randomUUID()}`;
+  registry.ensure(bridgeId);
+  const lines = readFileSync(fixture, "utf8").split("\n").map((l) => l.trim()).filter(Boolean);
+  const translator = new Translator({ includeRawEvent: false });
+  let lastSeq = 0;
+  for (const line of lines) {
+    for (const ev of translator.handle(JSON.parse(line) as StreamJsonEvent)) {
+      lastSeq = registry.append(bridgeId, ev).seq;
+    }
+  }
+  registry.setStatus(bridgeId, "finished");
+  return { sessionId: bridgeId, lastSeq };
 }
 
 /* ---------------- SSE ---------------- */
@@ -592,6 +617,17 @@ async function main(): Promise<void> {
     }
     if (req.method === "GET" && url.pathname === "/api/setup/github/callback") {
       void setupCallback(url, res);
+      return;
+    }
+
+    // TEST-ONLY seed hook (inert unless AYDA_TEST_HOOKS=1); see seedSession().
+    if (req.method === "POST" && url.pathname === "/test/seed") {
+      if (process.env.AYDA_TEST_HOOKS !== "1") return void res.writeHead(404).end("not found");
+      try {
+        res.writeHead(201, { "Content-Type": "application/json" }).end(JSON.stringify(seedSession()));
+      } catch (e) {
+        res.writeHead(500).end(`seed failed: ${(e as Error).message}`);
+      }
       return;
     }
 

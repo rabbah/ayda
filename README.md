@@ -120,6 +120,33 @@ Key facts:
 the container bind-mounts `agent/` so host edits reload live (this is why the
 source lives in `agent/`). Local `ast dev` adapters are `[web, slack]`.
 
+## Tests
+
+End-to-end tests (Playwright) cover the SSE reconnect fix and session delete — no
+model credential needed. The server boots on Node alone (every external dep is
+dynamically imported and guarded), and a test-only `POST /test/seed` hook builds a
+replayable session from the recorded fixture, so the transport/registry behaviour
+is exercised without a real Claude run.
+
+```bash
+npm install                                   # brings in @playwright/test
+npx playwright install --with-deps chromium   # one-time browser download
+npm test                                       # or: npm run test:ui
+```
+
+- `test/server-sse.spec.ts` — the server prefers the `Last-Event-ID` header over a
+  stale `?lastEventId=-1` query (reconnect *resumes*, not full-replays), plus
+  `DELETE /sessions/:id` semantics (204 → 404; events 404 afterward).
+- `test/client-reconnect.spec.ts` — mocks the SSE endpoint to force repeated
+  full-buffer replays and asserts the client renders `✓ finished` exactly once
+  (the reconnect-dedupe fix).
+- `test/client-delete.spec.ts` — the ✕ in the session menu issues `DELETE
+  /sessions/:id` and removes the row.
+
+`POST /test/seed` is exposed ONLY when `AYDA_TEST_HOOKS=1` (set by
+`playwright.config.ts`'s `webServer`); it's inert in production. CI runs the suite
+on every push to `main` and every PR (`.github/workflows/e2e.yml`).
+
 ## Architecture
 
 One internal pipeline, three sinks. The parsed stream-json event stream is the
@@ -308,7 +335,8 @@ the other Astro agents.
 - Harden auth: sign the `bridge_uid` cookie, GC OAuth CSRF state, encrypt tokens
   at rest.
 - Fix the outstanding `tsc` errors (adapter `getConfig` shape, `@types/pg`,
-  OTel SDK types) and wire a CI typecheck + AG-UI schema validation.
+  OTel SDK types) and add a CI typecheck + AG-UI schema validation alongside the
+  e2e workflow (see "Tests").
 - Verify `claude`/the SDK boots headless in the container with only the gateway
   credential (no interactive onboarding/TTY).
 </content>

@@ -19,6 +19,11 @@ build/
 *.log
 npm-debug.log*
 
+# Playwright
+/test-results/
+/playwright-report/
+/playwright/.cache/
+
 # OS / editor
 .DS_Store
 *.swp
