@@ -99,10 +99,12 @@
     border:1px solid var(--line); border-radius:8px; padding:8px 10px; }
   .settings-action:hover { border-color:var(--accent); }
   .caret { color:var(--muted); }
-  #session-menu { position:fixed; top:52px; left:16px; z-index:10; width:min(360px,calc(100vw - 32px));
+  #session-menu, #review-menu { position:fixed; top:52px; left:16px; z-index:10; width:min(420px,calc(100vw - 32px));
     max-height:60vh; overflow:auto; background:var(--panel); border:1px solid var(--line); border-radius:10px;
     padding:6px; box-shadow:0 8px 28px rgba(0,0,0,.45); }
-  #session-menu .empty { color:var(--muted); padding:8px 10px; }
+  #session-menu .empty, #review-menu .empty { color:var(--muted); padding:8px 10px; }
+  .sess-item .tags { display:block; color:var(--muted); font-size:11px; margin-top:2px; }
+  .sess-item .tags b { color:var(--fg); font-weight:600; }
   .sess-item { display:block; width:100%; text-align:left; background:none; border:1px solid transparent;
     border-radius:8px; padding:8px 10px; cursor:pointer; color:var(--fg); font:inherit; }
   .sess-item:hover { background:#0c0e12; }
@@ -135,6 +137,7 @@
   <span class="chip">cost <b id="cost">—</b></span>
   <span class="chip">conn <b id="conn">—</b></span>
   <span class="chip chip-debug">lastEventId <b id="lei">—</b></span>
+  <button id="review-btn" class="chip chip-btn" title="Review conversations Ayda handled" hidden>Review <span class="caret">▾</span></button>
   <button id="settings-btn" class="chip chip-btn" title="Settings" aria-label="Settings">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
   </button>
@@ -150,6 +153,7 @@
 </div>
 
 <div id="session-menu" hidden></div>
+<div id="review-menu" hidden></div>
 
 <main>
   <section id="timeline"></section>
@@ -346,6 +350,8 @@ function switchSession(id){
 // Detach from the current session and clear the view; the next prompt starts fresh.
 function newSession(){
   if (es){ es.close(); es = null; }
+  reviewing = false;
+  $("prompt").placeholder = "Prompt (e.g. bump retries in config.json)";
   sessionId = null; lastEventId = null; pendingEl = null;
   timeline.innerHTML = ""; rawlog.innerHTML = ""; messages.clear(); tools.clear(); renderedSeqs.clear(); stickToBottom = true;
   resetUsage(); setStatus("idle"); setComposerEnabled(true);
@@ -362,6 +368,60 @@ document.addEventListener("click", (e) => {
   const menu = $("session-menu"), btn = $("sid-btn");
   if (!menu.hidden && !menu.contains(e.target) && !btn.contains(e.target)) menu.hidden = true;
 });
+
+// ---- Conversation review (admin) -------------------------------------------
+// Browse the conversations Ayda handled over Slack/web and replay any one of
+// them READ-ONLY. GET /conversations is admin-gated server-side; if it 403s we
+// never show the Review button.
+let reviewing = false;
+function escHtml(s){ return String(s).replace(/[&<>"']/g, (m) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[m])); }
+async function initReview(){
+  try { if ((await fetch("/conversations")).ok) $("review-btn").hidden = false; } catch { /* leave hidden */ }
+}
+async function renderReviewMenu(){
+  const menu = $("review-menu");
+  menu.innerHTML = '<div class="empty">Loading…</div>';
+  let convos = [];
+  try {
+    const res = await fetch("/conversations");
+    if (!res.ok){ menu.innerHTML = '<div class="empty">Not available.</div>'; return; }
+    ({ conversations: convos } = await res.json());
+  } catch { menu.innerHTML = '<div class="empty">Failed to load.</div>'; return; }
+  if (!convos.length){ menu.innerHTML = '<div class="empty">No conversations yet.</div>'; return; }
+  menu.innerHTML = "";
+  for (const c of convos){
+    const b = document.createElement("button");
+    b.className = "sess-item" + (c.sessionId === sessionId ? " active" : "");
+    const where = c.kind === "slack" ? "slack" : (c.kind || "web");
+    b.innerHTML = `<span class="label">${escHtml(c.title || c.sessionId)}</span>`
+      + `<span class="tags">${escHtml(where)}${c.repo ? " · <b>" + escHtml(c.repo) + "</b>" : ""}`
+      + `${c.userId ? " · " + escHtml(c.userId) : ""} · ${c.events} events · ${escHtml(c.status)} · ${relTime(c.updatedAt)}</span>`;
+    b.addEventListener("click", () => { $("review-menu").hidden = true; openConversation(c); });
+    menu.appendChild(b);
+  }
+}
+function openConversation(c){
+  reviewing = true;
+  if (es){ es.close(); es = null; }
+  timeline.innerHTML = ""; rawlog.innerHTML = ""; messages.clear(); tools.clear();
+  lastEventId = null; pendingEl = null; resetUsage(); setStatus("idle");
+  sessionId = c.sessionId;
+  $("sid").textContent = (c.repo || c.sessionId).slice(0, 20);
+  setComposerEnabled(false);
+  $("prompt").placeholder = "Read-only review — start a New session to chat";
+  note(`Reviewing ${c.kind === "slack" ? "Slack" : "web"} conversation${c.repo ? " on " + c.repo : ""}${c.userId ? " · user " + c.userId : ""} — read-only`);
+  connect(-1); // replay the whole conversation from the server buffer
+}
+$("review-btn").addEventListener("click", (e) => {
+  e.stopPropagation();
+  const menu = $("review-menu");
+  if (menu.hidden){ renderReviewMenu(); menu.hidden = false; } else menu.hidden = true;
+});
+document.addEventListener("click", (e) => {
+  const menu = $("review-menu"), btn = $("review-btn");
+  if (!menu.hidden && !menu.contains(e.target) && !btn.contains(e.target)) menu.hidden = true;
+});
+initReview();
 
 // ---- Token / cost display ---------------------------------------------------
 function fmtTokens(n){
@@ -549,6 +609,7 @@ $("composer").addEventListener("submit", async (e) => {
   e.preventDefault();
   const prompt = $("prompt").value.trim();
   if (!prompt) return;
+  if (reviewing){ note("read-only review — open the session ▾ menu → New session to chat"); return; }
 
   // With an active session a prompt is a FOLLOW-UP turn on it; otherwise it
   // starts a NEW session. Only a new session clears the timeline + usage.
