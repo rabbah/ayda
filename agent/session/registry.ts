@@ -24,12 +24,31 @@ export interface LoggedEvent {
 
 export type SessionStatus = "starting" | "running" | "finished" | "errored";
 
+/** Descriptive metadata for browsing sessions (e.g. the conversation review UI). */
+export interface SessionMeta {
+  kind?: "browser" | "slack"; // where the conversation originated
+  userId?: string; // messaging/platform identity that owns it
+  repo?: string; // owner/repo bound to the thread, if any
+  title?: string; // short label (first prompt), for the list
+}
+
+export interface SessionSummary extends SessionMeta {
+  sessionId: string;
+  status: SessionStatus;
+  events: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
 interface SessionState {
   sessionId: string;
   seq: number;
   log: LoggedEvent[];
   status: SessionStatus;
   emitter: EventEmitter; // "event" (LoggedEvent), "status" (SessionStatus)
+  meta: SessionMeta;
+  createdAt: number;
+  updatedAt: number;
 }
 
 export class SessionRegistry {
@@ -37,14 +56,44 @@ export class SessionRegistry {
 
   ensure(sessionId: string): void {
     if (!this.sessions.has(sessionId)) {
+      const now = Date.now();
       this.sessions.set(sessionId, {
         sessionId,
         seq: 0,
         log: [],
         status: "starting",
         emitter: new EventEmitter(),
+        meta: {},
+        createdAt: now,
+        updatedAt: now,
       });
     }
+  }
+
+  /** Attach/merge descriptive metadata (kind, user, repo, title) for browsing. */
+  setMeta(sessionId: string, meta: SessionMeta): void {
+    const s = this.get(sessionId);
+    s.meta = { ...s.meta, ...meta };
+    s.updatedAt = Date.now();
+  }
+
+  /** Summaries of all sessions, most-recently-active first (for a list view). */
+  list(): SessionSummary[] {
+    return [...this.sessions.values()]
+      .map((s) => ({
+        sessionId: s.sessionId,
+        status: s.status,
+        events: s.log.length,
+        createdAt: s.createdAt,
+        updatedAt: s.updatedAt,
+        ...s.meta,
+      }))
+      .sort((a, b) => b.updatedAt - a.updatedAt);
+  }
+
+  /** The metadata kind for a session, or undefined if unknown. */
+  kind(sessionId: string): SessionMeta["kind"] {
+    return this.sessions.get(sessionId)?.meta.kind;
   }
 
   has(sessionId: string): boolean {
@@ -68,6 +117,7 @@ export class SessionRegistry {
     const s = this.get(sessionId);
     const logged: LoggedEvent = { seq: ++s.seq, event };
     s.log.push(logged);
+    s.updatedAt = Date.now();
     s.emitter.emit("event", logged);
     return logged;
   }

@@ -184,6 +184,52 @@ The same pipeline feeds both the SSE/AG-UI frontend and the messaging sidecar.
 | `agent/persistence/results.ts` | Persist final `result` (cost, usage, turns) for billing/observability. |
 | `agent/index.ts` | HTTP wiring, session lifecycle, GitHub/auth routes, messaging bootstrap. |
 
+## Working on Slack (threads, repos, concurrency)
+
+Ayda is multi-threaded over Slack: the **conversation (thread) is the unit of
+work and isolation**. The messaging sidecar dispatches threads concurrently, and
+each thread gets its own workspace, its own repo checkout, and its own Claude
+session — so different threads work on different repos at the same time without
+interfering.
+
+**One thread = one task = one repo.** In a thread, bind the repo once:
+
+```
+work on owner/repo        (or: /work owner/repo)
+```
+
+Ayda clones it into that thread's workspace and reuses the checkout across turns
+(your work-in-progress is kept between messages — it is *not* reset). To work on
+a **different** repo, start a **new thread**; a thread stays bound to its first
+repo. `/whoami` shows the thread's bound repo and your GitHub connection.
+
+How it behaves under load:
+
+- **Concurrent threads** run in parallel, bounded by `MAX_CONCURRENT_RUNS`
+  (default 3) so a burst of threads can't exhaust the box — excess runs queue.
+- **Rapid messages in one thread**: a new message supersedes the in-flight run.
+  The sidecar aborts it and Ayda kills the old `claude` child, so two runs never
+  race in one workspace.
+- **Idle workspaces** are reclaimed by a TTL sweep (`startWorkspaceGc`); set
+  `WORKSPACE_ROOT` to a persistent volume so a thread can resume days later.
+
+### Execution sandbox (isolation)
+
+By default Claude runs **in-process**. Deploy the **sandbox** container
+(`knowledge.sandbox` in `astropods.yml`, code in `sandbox/`) and execution moves
+to a separate, secret-less container reached over HTTP — it holds none of the
+control plane's secrets (DB, GitHub tokens, HMAC key), only the model credential
+and one user's `GH_TOKEN` forwarded per request. The switch is automatic: when
+the platform injects `KNOWLEDGE_SANDBOX_HOST`, `agent/sandbox-client.ts` routes
+there; `SandboxSession` mirrors `ClaudeAgentSession`, so the rest is unchanged.
+(The browser `/sessions` test client still runs in-process today — the sandbox
+split currently covers the messaging/Slack path.)
+
+Relevant modules: `agent/messaging/adapter.ts` (Slack turn: workspace + repo +
+concurrency + abort), `agent/session/repo.ts` (`work on` checkout), `agent/session/workspace.ts`
+(per-thread workspace + GC), `agent/concurrency.ts` (`runLimiter`),
+`agent/sandbox-client.ts` + `sandbox/index.ts` (the isolated runner).
+
 ## stream-json → AG-UI mapping
 
 | Claude Code stream-json | AG-UI event(s) |

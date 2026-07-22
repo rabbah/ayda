@@ -41,7 +41,7 @@ import { dirname, join } from "node:path";
 import { ClaudeAgentSession } from "./claude/agent.ts";
 import { Translator } from "./translate/translator.ts";
 import { SessionRegistry } from "./session/registry.ts";
-import { createWorkspace, removeWorkspace } from "./session/workspace.ts";
+import { createWorkspace, removeWorkspace, startWorkspaceGc } from "./session/workspace.ts";
 import { createTelemetry, type Telemetry } from "./telemetry/otel.ts";
 import { startTelemetrySdk, shutdownTelemetrySdk } from "./telemetry/bootstrap.ts";
 import { InMemoryResultStore, toRunRecord, type ResultStore } from "./persistence/results.ts";
@@ -219,6 +219,7 @@ async function runTurn(bridgeId: string, cwd: string, opts: TurnOpts): Promise<v
 async function startSession(opts: TurnOpts): Promise<string> {
   const bridgeId = `sess_${randomUUID()}`;
   registry.ensure(bridgeId);
+  registry.setMeta(bridgeId, { kind: "browser", userId: opts.userKey, title: opts.prompt.slice(0, 80) });
   // Each session gets its own writable temp workspace as its cwd (the process
   // cwd is the read-only /app source tree). Reused across turns; kept, no
   // cleanup. See session/workspace.ts.
@@ -509,6 +510,26 @@ async function githubRepos(req: IncomingMessage, res: ServerResponse): Promise<v
   );
 }
 
+/* ---------------- conversation review ---------------- */
+
+/**
+ * GET /conversations — list the conversations the agent handled (Slack/web +
+ * browser) so the frontend can review them. Admin-gated: when ADMIN_EMAILS is
+ * set, requires a match against the ALB-verified email; when no admin list is
+ * configured (local/dev), any authorized user may view. This exposes OTHER
+ * users' conversations (incl. private-repo content), so set ADMIN_EMAILS in any
+ * real deployment. (Switch to per-user by filtering `registry.list()` on the
+ * caller's resolved userId instead.)
+ */
+async function listConversations(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  const { allowed, email } = await resolveIdentity(req, res);
+  if (!allowed || !(isAdmin(email) || !adminListConfigured())) {
+    res.writeHead(403, { "Content-Type": "application/json" }).end(JSON.stringify({ error: "forbidden" }));
+    return;
+  }
+  res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ conversations: registry.list() }));
+}
+
 /* ---------------- GitHub App setup (App-Manifest) routes ---------------- */
 
 /**
@@ -588,7 +609,9 @@ async function startMessaging(): Promise<void> {
       serve: (adapter: unknown, options?: unknown) => void;
     };
     const { ClaudeCodeAdapter } = await import("./messaging/adapter.ts");
-    serve(new ClaudeCodeAdapter(store));
+    // Pass the shared registry so Slack/web conversations are logged for review
+    // in the frontend (GET /conversations + /sessions/:id/events).
+    serve(new ClaudeCodeAdapter(store, undefined, registry));
     console.log("[bridge] messaging: registered Claude Code adapter with sidecar (web/slack)");
   } catch (e) {
     console.warn(`[bridge] messaging: adapter not started: ${(e as Error).message}`);
@@ -612,6 +635,8 @@ async function main(): Promise<void> {
     }`,
   );
   await startMessaging();
+  // Reclaim idle per-thread workspaces so multi-repo checkouts don't fill the disk.
+  startWorkspaceGc();
 
   const server = createServer((req, res) => {
     const url = new URL(req.url ?? "/", `http://localhost:${PORT}`);
@@ -638,6 +663,10 @@ async function main(): Promise<void> {
     }
     if (req.method === "GET" && url.pathname === "/api/github/repos") {
       void githubRepos(req, res);
+      return;
+    }
+    if (req.method === "GET" && url.pathname === "/conversations") {
+      void listConversations(req, res);
       return;
     }
     if (req.method === "GET" && url.pathname === "/api/setup/status") {
@@ -753,6 +782,7 @@ async function main(): Promise<void> {
 
     const m = url.pathname.match(/^\/sessions\/([^/]+)\/events$/);
     if (req.method === "GET" && m) {
+      const id = decodeURIComponent(m[1]);
       // Prefer the browser's Last-Event-ID header over the URL query param. On an
       // automatic EventSource reconnect the URL is unchanged (it may still carry
       // the initial ?lastEventId=-1), but the browser sends Last-Event-ID with the
@@ -763,7 +793,21 @@ async function main(): Promise<void> {
       const q = url.searchParams.get("lastEventId");
       const querySeq = q != null ? Number.parseInt(q, 10) : -1;
       const lastSeq = headerSeq >= 0 ? headerSeq : querySeq;
-      return streamEvents(decodeURIComponent(m[1]), Number.isFinite(lastSeq) ? lastSeq : -1, req, res);
+      const seq = Number.isFinite(lastSeq) ? lastSeq : -1;
+      // Slack/web conversations belong to other users — gate their replay to
+      // admins. Browser sessions are the viewer's own, so they stay open.
+      if (registry.kind(id) === "slack") {
+        void (async () => {
+          const { allowed, email } = await resolveIdentity(req, res);
+          if (!allowed || !(isAdmin(email) || !adminListConfigured())) {
+            res.writeHead(403).end("forbidden");
+            return;
+          }
+          streamEvents(id, seq, req, res);
+        })();
+        return;
+      }
+      return streamEvents(id, seq, req, res);
     }
 
     res.writeHead(404).end("not found");

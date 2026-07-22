@@ -64,6 +64,22 @@ knowledge:
   # fall back to container mode — see the migrate-to-astropods notes.)
   db:
     provider: postgres
+  # Isolated execution sandbox (the "gold standard" split). Runs Claude Code + git
+  # on per-conversation repo checkouts in a container that holds NONE of the
+  # control plane's secrets (DB, GitHub tokens, HMAC key) — a rogue tool the model
+  # runs can reach at most one thread's checkout. The agent reaches it over HTTP;
+  # the platform injects KNOWLEDGE_SANDBOX_HOST/PORT, which agent/sandbox-client.ts
+  # picks up to route execution here automatically. The model credential and the
+  # per-user GH_TOKEN are forwarded per request, so nothing sensitive lives here at
+  # rest. /data holds per-thread workspaces (TTL-GC'd). Remove this block to run
+  # Claude in-process in the agent container instead.
+  sandbox:
+    container:
+      build:
+        context: .
+        dockerfile: sandbox/Dockerfile
+      port: 3000
+      volume: /data
 
 dev:
   # Local hot-reload path (`ast dev` / `ast project`): runs the agent in a
