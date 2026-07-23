@@ -48,6 +48,13 @@ const PASSTHROUGH_ENV = [
   "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY",
   "http_proxy", "https_proxy", "no_proxy",
   "NODE_EXTRA_CA_CERTS",
+  // Build-tool config (non-secret paths + limits). Forwarded so the sandbox's
+  // baked Go/npm/pip tuning — caches on the /data volume, GOMEMLIMIT/GOMAXPROCS
+  // to fit the small container — actually reaches the `go`/npm/pip processes the
+  // agent spawns. Without these on the allowlist the tuning is stripped here and
+  // builds run unbounded (→ OOM) with ephemeral caches (→ re-download every run).
+  "GOMODCACHE", "GOCACHE", "GOFLAGS", "GOMEMLIMIT", "GOMAXPROCS", "GOPATH", "GOTOOLCHAIN",
+  "npm_config_cache", "PIP_CACHE_DIR",
 ] as const;
 
 /** A clean base env: only the allowlisted non-secret essentials from the host. */
