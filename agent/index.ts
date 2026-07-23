@@ -138,6 +138,7 @@ interface TurnOpts {
   allowedTools: string[];
   permissionMode: string;
   userKey: string; // bridge_uid, for GitHub token lookup
+  userId?: string; // resolved platform id for tracing (null/local dev → "anonymous")
 }
 
 /**
@@ -163,6 +164,7 @@ async function runTurn(bridgeId: string, cwd: string, opts: TurnOpts): Promise<v
     permissionMode: opts.permissionMode,
     githubToken,
     cwd,
+    userId: opts.userId,
     // Resume the prior Claude session (if any) so follow-up turns keep context.
     resumeSessionId: claudeSessionIds.get(bridgeId),
   });
@@ -678,13 +680,14 @@ async function main(): Promise<void> {
             // Resolve + authorize the caller the same way the sidecar does; the
             // GitHub token is keyed by the resolved platform id so git/gh act as
             // the same identity the user connected in chat.
-            const { allowed, userKey } = await resolveIdentity(req, res);
+            const { allowed, userKey, userId } = await resolveIdentity(req, res);
             if (!allowed) return void res.writeHead(403).end("forbidden");
             const sessionId = await startSession({
               prompt: b.prompt,
               allowedTools: b.allowedTools ?? ["Read", "Edit", "Bash", "Grep"],
               permissionMode: b.permissionMode ?? "acceptEdits",
               userKey,
+              userId: userId ?? undefined,
             });
             res.writeHead(201, { "Content-Type": "application/json" }).end(JSON.stringify({ sessionId }));
           } catch (e) {
@@ -709,13 +712,14 @@ async function main(): Promise<void> {
             // One query() runs at a time per session — refuse overlapping turns.
             const st = registry.status(bridgeId);
             if (st === "running" || st === "starting") return void res.writeHead(409).end("session busy");
-            const { allowed, userKey } = await resolveIdentity(req, res);
+            const { allowed, userKey, userId } = await resolveIdentity(req, res);
             if (!allowed) return void res.writeHead(403).end("forbidden");
             await continueSession(bridgeId, {
               prompt: b.prompt,
               allowedTools: b.allowedTools ?? ["Read", "Edit", "Bash", "Grep"],
               permissionMode: b.permissionMode ?? "acceptEdits",
               userKey,
+              userId: userId ?? undefined,
             });
             // The follow-up turn streams over the session's already-open SSE.
             res.writeHead(202, { "Content-Type": "application/json" }).end(JSON.stringify({ sessionId: bridgeId }));

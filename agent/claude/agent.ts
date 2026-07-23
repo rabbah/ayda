@@ -37,6 +37,12 @@ export interface AgentSessionOptions {
   systemPromptAppend?: string;
   /** Per-user GitHub token (from OAuth) → injected as GH_TOKEN for git/gh. */
   githubToken?: string;
+  /**
+   * End user this run acts for (messaging StreamOptions.userId, or the resolved
+   * web identity). Tagged on the run's trace as `langfuse.user.id` so the Astro
+   * Traces page shows a User; empty/absent backfills "anonymous".
+   */
+  userId?: string;
 }
 
 type Events = {
@@ -44,6 +50,24 @@ type Events = {
   exit: [number | null];
   spawnError: [Error];
 };
+
+/**
+ * Minimal slice of `@opentelemetry/api` used to tag a run's trace with the end
+ * user. Imported dynamically (see withUserTrace) so the bridge still runs when
+ * the telemetry deps aren't installed, matching telemetry/otel.ts.
+ */
+interface OtelTraceApi {
+  trace: {
+    getTracer: (name: string) => {
+      startSpan: (name: string) => { setAttribute: (k: string, v: unknown) => void; end: () => void };
+    };
+    setSpan: (ctx: unknown, span: unknown) => unknown;
+  };
+  context: {
+    active: () => unknown;
+    with: <T>(ctx: unknown, fn: () => T) => T;
+  };
+}
 
 export class ClaudeAgentSession extends EventEmitter<Events> {
   private readonly opts: AgentSessionOptions;
@@ -115,21 +139,55 @@ export class ClaudeAgentSession extends EventEmitter<Events> {
         console.error(`[claude:stderr] ${typeof data === "string" ? data : JSON.stringify(data)}`),
     };
 
-    const q = query({ prompt, options });
-    this.q = q;
-    console.error(`[claude:run] starting model=${this.opts.model.id}`);
-    // SDK messages mirror the CLI stream-json envelopes; the cast bridges the
-    // SDK's typed union to ours so the Translator/telemetry consume them as-is.
-    for await (const message of q) {
-      const ev = message as StreamJsonEvent;
-      // DEBUG: dump result / system / error-bearing events in full so a failed
-      // run reveals its real cause instead of the generic "Claude Code run failed".
-      const t = (ev as { type?: string }).type;
-      if (t === "result" || t === "system" || (ev as { is_error?: boolean }).is_error) {
-        console.error(`[claude:event ${t}] ${JSON.stringify(ev)}`);
+    // Attach the end user to this run's trace so it shows up in Astro's "Traces"
+    // page. The claude-agent-sdk adapter emits OpenInference spans but exposes no
+    // hook for user identity, so we open a parent span carrying `langfuse.user.id`
+    // and run query() inside its context: the adapter's spans nest under it (the
+    // shared tracer provider registers a global context manager), Langfuse reads
+    // the trace's user from the root span, and the OTLP ingester leaves the
+    // attribute intact. Mirrors the langchain/mastra adapters.
+    await this.withUserTrace(async () => {
+      const q = query({ prompt, options });
+      this.q = q;
+      console.error(`[claude:run] starting model=${this.opts.model.id}`);
+      // SDK messages mirror the CLI stream-json envelopes; the cast bridges the
+      // SDK's typed union to ours so the Translator/telemetry consume them as-is.
+      for await (const message of q) {
+        const ev = message as StreamJsonEvent;
+        // DEBUG: dump result / system / error-bearing events in full so a failed
+        // run reveals its real cause instead of the generic "Claude Code run failed".
+        const t = (ev as { type?: string }).type;
+        if (t === "result" || t === "system" || (ev as { is_error?: boolean }).is_error) {
+          console.error(`[claude:event ${t}] ${JSON.stringify(ev)}`);
+        }
+        this.emit("event", ev);
       }
-      this.emit("event", ev);
-    }
+    });
     this.emit("exit", 0);
+  }
+
+  /**
+   * Run `fn` inside an OTel span whose `langfuse.user.id` is this run's end user,
+   * so the adapter's nested spans inherit it and the run shows a User in the
+   * Traces page. Backfills "anonymous" for an empty id (keeps unauthenticated
+   * runs out of the "No user" bucket, matching the langchain/mastra adapters).
+   * Degrades to calling `fn` directly when `@opentelemetry/api` is absent.
+   */
+  private async withUserTrace(fn: () => Promise<void>): Promise<void> {
+    let otel: OtelTraceApi;
+    try {
+      otel = (await import("@opentelemetry/api")) as unknown as OtelTraceApi;
+    } catch {
+      await fn();
+      return;
+    }
+    const span = otel.trace.getTracer("ayda").startSpan("ayda.agent.run");
+    span.setAttribute("langfuse.user.id", this.opts.userId || "anonymous");
+    const ctx = otel.trace.setSpan(otel.context.active(), span);
+    try {
+      await otel.context.with(ctx, fn);
+    } finally {
+      span.end();
+    }
   }
 }
