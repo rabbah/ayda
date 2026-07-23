@@ -262,9 +262,28 @@ multi-turn agentic loop are kept.)
   messaging routes through it, so **lower it to 1–2 to ease sandbox memory pressure**.
 - `SANDBOX_MAX_CONCURRENT` (default 3) — sandbox-side backstop bounding `claude` children
   in the sandbox container, independent of how many agent replicas call it.
-- Not yet addressed: the ~78s **cold-start** (spawn + gateway/model init) and the fact that
-  the sandbox container can't be sized via `astropods.yml`. A `NODE_OPTIONS` heap cap and
-  partial clones (`--filter=blob:none`) are candidate follow-ups.
+- Not yet addressed: the ~78s **cold-start** (spawn + gateway/model init).
+
+**Sandbox resource ceiling (hard limit — important).** The `knowledge.sandbox`
+container gets the platform default of **~1 GiB memory / 100m CPU**, and there is
+**no way to raise it from `astropods.yml`** — `ContainerConfig` exposes only
+image/build/gpu/port/volume/environment/healthcheck, no cpu/memory. Compiling a
+large project (e.g. a Go repo with `cgo`/sqlite + full dep tree) **OOM-kills the
+sandbox** (observed: memory pegged at the 1 GiB cap, repeated OOM kills + restarts,
+manifesting to the control plane as `terminated: other side closed`), and 100m CPU
+makes such builds extremely slow. Mitigations in place (`sandbox/Dockerfile`):
+- **Go baked into the image** + `GOMODCACHE`/`GOCACHE` on the `/data` volume — no
+  toolchain re-download, and modules/build cache survive across requests so repeat
+  builds compile far fewer packages.
+- **`GOMEMLIMIT=600MiB` + `GOMAXPROCS=1`** — the Go toolchain GCs hard and compiles
+  serially, so a build fits under the 1 GiB cap instead of OOM-ing (trades speed for
+  survival). npm/pip caches also on `/data`.
+
+These help builds *complete* and make repeats cheap, but **1 GiB / 100m CPU is
+fundamentally under-provisioned for compiling large projects**. Durable fixes are
+platform-side, not in this repo: (a) raise the knowledge-container limits (needs a
+platform/spec change — there's no astropods.yml knob today), or (b) have the agent
+verify narrowly (build/`vet` only the changed package) and leave full builds to CI.
 
 ## stream-json → AG-UI mapping
 
