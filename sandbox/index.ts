@@ -108,6 +108,20 @@ async function handleQuery(req: IncomingMessage, res: ServerResponse): Promise<v
   });
   const send = (frame: unknown) => res.write(`data: ${JSON.stringify(frame)}\n\n`);
 
+  // Heartbeat: keep the SSE body active during long, QUIET operations (a
+  // multi-minute build/clone with no model output). Without periodic bytes the
+  // control plane's fetch trips undici's idle bodyTimeout (~5m) and kills the
+  // turn mid-build (the reported "terminated: Body Timeout Error"). The client
+  // ignores heartbeat frames (SandboxSession only handles event/error/exit).
+  const heartbeat = setInterval(() => {
+    try {
+      send({ t: "heartbeat" });
+    } catch {
+      /* socket closing */
+    }
+  }, 15_000);
+  heartbeat.unref?.();
+
   // Headers are already sent, so the client holds the connection open while we
   // wait for a concurrency slot; every exit path goes through end() to release it.
   let ended = false;
@@ -115,6 +129,7 @@ async function handleQuery(req: IncomingMessage, res: ServerResponse): Promise<v
   const end = () => {
     if (ended) return;
     ended = true;
+    clearInterval(heartbeat);
     if (acquired) sandboxLimiter.release();
     res.end();
   };
@@ -192,6 +207,10 @@ function main(): void {
     if (req.method === "POST" && url.pathname === "/cleanup") return void handleCleanup(req, res);
     json(res, 404, { error: "not found" });
   });
+  // A /query is a long-lived SSE response (a build can run many minutes). Disable
+  // the server's request timeout so Node doesn't cut the connection from its end;
+  // the heartbeat + the control plane's abort handle liveness instead.
+  server.requestTimeout = 0;
   server.listen(PORT, () => console.log(`[sandbox] listening on :${PORT}, workspaces at ${ROOT}`));
 }
 
