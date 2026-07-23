@@ -58,6 +58,7 @@ ENV NODE_ENV=production \
     GOFLAGS=-mod=mod \
     GOMEMLIMIT=600MiB \
     GOMAXPROCS=1 \
+    GOTOOLCHAIN=local \
     npm_config_cache=/data/cache/npm \
     PIP_CACHE_DIR=/data/cache/pip
 
