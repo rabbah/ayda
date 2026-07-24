@@ -13,21 +13,44 @@
         integrity="sha384-XQqX/4yiUGu+oyr87jvWzRuqBUK/adrY0DunhL+tID9m/9dwSpV8h9Fk/Sg6ifVQ"
         crossorigin="anonymous"></script>
 <style>
-  :root { --bg:#0f1115; --panel:#181b22; --line:#272b34; --fg:#e6e8ec; --muted:#8b93a1;
-          --user:#1e2a3a; --asst:#1b2620; --tool:#2a2418; --accent:#6ea8fe; --err:#ff6b6b; --ok:#5bd08b; }
+  /* Ayda theme — Ada Lovelace lavender + gold on a deep-purple dark base. */
+  :root {
+    --bg:#15111f; --panel:#1e1930; --line:#2f2747; --code:#100d1a;
+    --fg:#ece9f5; --muted:#9d94b8;
+    --accent:#9b7dff;   /* lavender — primary accent */
+    --gold:#e6b64a;     /* gold — secondary accent */
+    --user:#241d3a; --asst:#1a1626; --tool:#2a2214;
+    --err:#ff6b6b; --ok:#5bd08b;
+  }
   * { box-sizing:border-box; }
   html, body { height:100%; }
-  body { margin:0; font:14px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:var(--bg); color:var(--fg);
+  body { margin:0; font:14px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; color:var(--fg);
+         background-color:var(--bg);
+         background-image:radial-gradient(900px 420px at 50% -10%, rgba(155,125,255,.13), transparent 70%);
          height:100vh; display:flex; flex-direction:column; overflow:hidden; }
-  header { flex:0 0 auto; padding:12px 16px; border-bottom:1px solid var(--line); display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
-  header h1 { font-size:14px; margin:0; font-weight:600; }
+  header { flex:0 0 auto; padding:12px 16px; border-bottom:1px solid var(--line); display:flex; gap:10px; align-items:center; flex-wrap:wrap;
+           background:linear-gradient(180deg, rgba(155,125,255,.07), transparent); }
+  .brand { display:flex; align-items:center; gap:9px; margin-right:4px; }
+  .brand-mark { display:block; flex:0 0 auto; }
+  header h1 { font-size:15px; margin:0; font-weight:700; letter-spacing:.02em;
+              background:linear-gradient(90deg, #cbbcff, var(--gold)); background-clip:text; -webkit-background-clip:text;
+              color:var(--fg); -webkit-text-fill-color:transparent; }
   .chip { font-size:12px; color:var(--muted); border:1px solid var(--line); border-radius:99px; padding:2px 10px; }
   .chip b { color:var(--fg); font-weight:600; }
   #status.running { color:var(--accent); } #status.finished { color:var(--ok); } #status.errored { color:var(--err); }
   main { flex:1 1 auto; min-height:0; display:grid; grid-template-columns: 1fr; gap:0; }
   body.debug main { grid-template-columns: 1fr 380px; }
-  #timeline { overflow:auto; padding:16px; }
-  #side { display:none; border-left:1px solid var(--line); overflow:auto; padding:16px; background:#0c0e12; }
+  #timeline { overflow:auto; padding:16px;
+    background-image:radial-gradient(rgba(155,125,255,.055) 1px, transparent 1.6px); background-size:22px 22px; }
+  .welcome { max-width:660px; margin:7vh auto 0; text-align:center; }
+  .welcome .ascii { display:inline-block; text-align:left; white-space:pre; margin:0 0 20px; font-size:12px; line-height:1.05; font-weight:700;
+    background:linear-gradient(120deg, #cbbcff 15%, var(--gold)); background-clip:text; -webkit-background-clip:text;
+    color:var(--accent); -webkit-text-fill-color:transparent; }
+  .welcome .tagline { color:var(--fg); font-size:15px; margin:0 0 6px; }
+  .welcome .hint { color:var(--muted); margin:0 0 20px; }
+  .welcome .hint code { background:var(--code); color:var(--fg); padding:1px 6px; border-radius:5px; }
+  .welcome .flourish { color:var(--gold); opacity:.55; font-size:11px; letter-spacing:.22em; }
+  #side { display:none; border-left:1px solid var(--line); overflow:auto; padding:16px; background:var(--code); }
   body.debug #side { display:block; }
   .chip-debug { display:none; }            /* debug-only chips (e.g. lastEventId) — shown with ?debug */
   body.debug .chip-debug { display:inline; }
@@ -35,6 +58,8 @@
   input[type=text] { flex:1; background:var(--panel); border:1px solid var(--line); color:var(--fg); border-radius:8px; padding:8px 10px; font:inherit; }
   button { background:var(--panel); border:1px solid var(--line); color:var(--fg); border-radius:8px; padding:8px 12px; cursor:pointer; font:inherit; }
   button:hover { border-color:var(--accent); }
+  #send { background:linear-gradient(180deg, #8b6dff, #7654f0); border-color:transparent; color:#fff; font-weight:600; }
+  #send:hover:not(:disabled) { filter:brightness(1.08); border-color:transparent; }
   label.demo { color:var(--muted); display:flex; align-items:center; gap:6px; }
   .bubble { border:1px solid var(--line); border-radius:10px; padding:10px 12px; margin:0 0 12px; white-space:pre-wrap; }
   .bubble.user { background:var(--user); } .bubble.assistant { background:var(--asst); }
@@ -48,8 +73,8 @@
   .bubble .body h1, .bubble .body h2, .bubble .body h3, .bubble .body h4 { margin:10px 0 6px; font-size:14px; color:var(--fg); text-transform:none; letter-spacing:0; }
   .bubble .body ul, .bubble .body ol { margin:0 0 8px; padding-left:20px; }
   .bubble .body li { margin:2px 0; }
-  .bubble .body code { background:#0c0e12; padding:1px 5px; border-radius:4px; font-size:12px; }
-  .bubble .body pre { background:#0c0e12; padding:8px 10px; border-radius:6px; overflow:auto; margin:0 0 8px; }
+  .bubble .body code { background:var(--code); padding:1px 5px; border-radius:4px; font-size:12px; }
+  .bubble .body pre { background:var(--code); padding:8px 10px; border-radius:6px; overflow:auto; margin:0 0 8px; }
   .bubble .body pre code { background:none; padding:0; }
   .bubble .body a { color:var(--accent); }
   .bubble .body strong { color:var(--fg); font-weight:600; }
@@ -61,19 +86,19 @@
   .tool.done > summary .name::after { content:" ✓"; color:var(--ok); }
   .tool .name { color:var(--accent); font-weight:600; }
   .summary-hint { color:var(--muted); margin-left:8px; }
-  .tool pre { margin:6px 0 0; padding:8px; background:#0c0e12; border-radius:6px; overflow:auto; }
+  .tool pre { margin:6px 0 0; padding:8px; background:var(--code); border-radius:6px; overflow:auto; }
   .tool .result { margin-top:8px; border-top:1px dashed var(--line); padding-top:8px; color:var(--ok); }
   .tool .result.err { color:var(--err); }
   .notice { color:var(--muted); font-style:italic; margin:0 0 12px; }
   .final { border-left:3px solid var(--ok); padding-left:10px; margin:8px 0; }
-  #status.starting { color:#e6b455; }
+  #status.starting { color:var(--gold); }
   .pending { color:var(--muted); display:flex; align-items:center; gap:8px; margin:4px 0 12px; }
   .pending .dot { width:8px; height:8px; border-radius:50%; background:var(--accent); animation:pulse 1s infinite ease-in-out; }
   @keyframes pulse { 0%,100%{opacity:.25} 50%{opacity:1} }
   input[type=text]:disabled, button:disabled { opacity:.5; cursor:not-allowed; }
   h2 { font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; margin:0 0 8px; }
   #rawlog { font-size:12px; }
-  #rawlog div { padding:3px 0; border-bottom:1px solid #14171d; word-break:break-all; }
+  #rawlog div { padding:3px 0; border-bottom:1px solid var(--line); word-break:break-all; }
   #rawlog .seq { color:var(--accent); }
   .toolbar { display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap; }
   .chip-btn { cursor:pointer; font:inherit; text-decoration:none; }
@@ -89,7 +114,7 @@
   #settings-dl { margin:0; display:grid; grid-template-columns:auto 1fr; gap:6px 12px; }
   #settings-dl dt { color:var(--muted); }
   #settings-dl dd { margin:0; word-break:break-all; }
-  #settings-dl dd.ok { color:var(--ok); } #settings-dl dd.warn { color:#e6b455; }
+  #settings-dl dd.ok { color:var(--ok); } #settings-dl dd.warn { color:var(--gold); }
   #settings-dl .repo-list { margin:0; padding-left:1.1em; }
   #settings-dl .repo-list li { word-break:break-all; }
   #settings-dl .repo-note { color:var(--muted); font-size:12px; margin-top:4px; }
@@ -105,12 +130,12 @@
   #session-menu .empty { color:var(--muted); padding:8px 10px; }
   .sess-item { display:block; width:100%; text-align:left; background:none; border:1px solid transparent;
     border-radius:8px; padding:8px 10px; cursor:pointer; color:var(--fg); font:inherit; }
-  .sess-item:hover { background:#0c0e12; }
+  .sess-item:hover { background:var(--code); }
   .sess-item.sess-new { color:var(--accent); font-weight:600; margin-bottom:4px; }
   /* Past-session row: clickable label/meta on the left, delete (✕) on the right.
      A row (not a nested button) so the ✕ isn't a button-inside-a-button. */
   .sess-row { display:flex; align-items:center; border:1px solid transparent; border-radius:8px; }
-  .sess-row:hover { background:#0c0e12; }
+  .sess-row:hover { background:var(--code); }
   .sess-row.active { border-color:var(--accent); }
   .sess-row .sess-item { flex:1; min-width:0; width:auto; border:none; border-radius:8px 0 0 8px; }
   .sess-row .sess-item:hover { background:none; }
@@ -127,7 +152,19 @@
 </head>
 <body>
 <header>
-  <h1>Ayda</h1>
+  <div class="brand">
+    <!-- Punch-card mark (gold dots + lavender dashes) — nods to Ada Lovelace / the Analytical Engine. -->
+    <svg class="brand-mark" width="26" height="26" viewBox="0 0 26 26" role="img" aria-label="Ayda">
+      <rect x="0.75" y="0.75" width="24.5" height="24.5" rx="7" fill="#241d3a" stroke="#3a2d5c" stroke-width="1"/>
+      <g fill="#e6b64a"><circle cx="6.5" cy="7" r="1.5"/><circle cx="6.5" cy="13" r="1.5"/><circle cx="6.5" cy="19" r="1.5"/></g>
+      <g stroke="#9b7dff" stroke-width="1.7" stroke-linecap="round">
+        <line x1="10.5" y1="7" x2="20" y2="7"/>
+        <line x1="10.5" y1="13" x2="16.5" y2="13"/>
+        <line x1="10.5" y1="19" x2="20" y2="19"/>
+      </g>
+    </svg>
+    <h1>Ayda</h1>
+  </div>
   <button id="sid-btn" class="chip chip-btn" title="Switch session">session <b id="sid">—</b> <span class="caret">▾</span></button>
   <span class="chip">status <b id="status">idle</b></span>
   <span class="chip">model <b id="model">—</b></span>
@@ -344,6 +381,23 @@ function switchSession(id){
   connect(-1); // replay everything from the server's buffer, then live-tail
 }
 // Detach from the current session and clear the view; the next prompt starts fresh.
+// ASCII "AYDA" welcome, shown on an empty timeline (initial load + New session)
+// and replaced the moment a turn starts (the timeline is cleared). Built from
+// per-line strings so source indentation can't corrupt the art.
+const WELCOME_HTML =
+  '<div class="welcome"><pre class="ascii" aria-hidden="true">'
+  + ' █████╗ ██╗   ██╗██████╗  █████╗ \n'
+  + '██╔══██╗╚██╗ ██╔╝██╔══██╗██╔══██╗\n'
+  + '███████║ ╚████╔╝ ██║  ██║███████║\n'
+  + '██╔══██║  ╚██╔╝  ██║  ██║██╔══██║\n'
+  + '██║  ██║   ██║   ██████╔╝██║  ██║\n'
+  + '╚═╝  ╚═╝   ╚═╝   ╚═════╝ ╚═╝  ╚═╝'
+  + '</pre>'
+  + '<p class="tagline">A coding agent you converse with — on Slack, web chat, or right here.</p>'
+  + '<p class="hint">Try <code>work on owner/repo</code> to start a task, or <code>connect github</code> to link your account.</p>'
+  + '<p class="flourish">· · — · ·  named for Ada Lovelace, 1815–1852  · · — · ·</p></div>';
+function renderWelcome(){ timeline.innerHTML = WELCOME_HTML; }
+
 function newSession(){
   if (es){ es.close(); es = null; }
   sessionId = null; lastEventId = null; pendingEl = null;
@@ -351,6 +405,7 @@ function newSession(){
   resetUsage(); setStatus("idle"); setComposerEnabled(true);
   $("sid").textContent = "—"; $("lei").textContent = "—";
   renderSessionMenu();
+  renderWelcome();
   $("prompt").focus();
 }
 $("sid-btn").addEventListener("click", (e) => {
@@ -362,6 +417,8 @@ document.addEventListener("click", (e) => {
   const menu = $("session-menu"), btn = $("sid-btn");
   if (!menu.hidden && !menu.contains(e.target) && !btn.contains(e.target)) menu.hidden = true;
 });
+
+renderWelcome();  // show the ASCII banner on first load (cleared once a turn starts)
 
 // ---- Token / cost display ---------------------------------------------------
 function fmtTokens(n){
