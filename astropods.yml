@@ -67,6 +67,19 @@ inputs:
     default: "3"
     description: "Max concurrent Claude runs (each is a child process). Lower to 1–2 to ease sandbox memory pressure."
     display-as: short-text
+  # GitHub App visibility. Default PRIVATE (single-tenant): only the account that
+  # created the App can install it — right when one user/org runs their own Ada.
+  # Set "true" for MULTI-TENANT: a PUBLIC App any teammate can install on THEIR
+  # repos and connect via chat. Public only means "installable by others"; each
+  # install is still explicit + repo-scoped, and the client secret stays secret.
+  GITHUB_APP_PUBLIC:
+    name: GITHUB_APP_PUBLIC
+    datatype: string
+    optional: true
+    default: "false"
+    description: "Provision the GitHub App as public (multi-tenant: installable by other users). Default false = private/single-tenant."
+    display-as: select
+    options: ["false", "true"]
 
 knowledge:
   # Durable store for per-user GitHub OAuth tokens (access + refresh + expiry)

@@ -69,7 +69,9 @@ baked into the container.
 - **Set up** — an admin (whose verified email is listed in `ADMIN_EMAILS`) opens
   the web UI and clicks **Set up GitHub App** to provision the App through
   GitHub's App-Manifest flow. No manual App registration, no client id/secret to
-  copy. (Setup is web-only: admin is verified by email, which chat doesn't carry.
+  copy. The App is provisioned **private** by default (single-tenant); set
+  `GITHUB_APP_PUBLIC=true` for multi-tenant so other users can install it on their
+  own repos and connect. (Setup is web-only: admin is verified by email, which chat doesn't carry.
   If `ADMIN_EMAILS` is unset, any signed-in user can perform the *initial* setup;
   provisioning then locks.)
 

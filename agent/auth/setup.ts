@@ -25,6 +25,15 @@ function parseAdminEmails(env: NodeJS.ProcessEnv): string[] {
 }
 
 /**
+ * GitHub App visibility. PRIVATE by default (single-tenant): only the owning
+ * account can install it. Set GITHUB_APP_PUBLIC=true for multi-tenant, so any
+ * teammate can install it on their own repos and connect via chat.
+ */
+function isPublicApp(env: NodeJS.ProcessEnv): boolean {
+  return /^(1|true|yes)$/i.test((env.GITHUB_APP_PUBLIC ?? "").trim());
+}
+
+/**
  * Whether a verified email is on the admin allowlist (ADMIN_EMAILS).
  * Email is the admin key because it's the only human-knowable identity the
  * platform gives us — the opaque platform user id isn't something a deployer can
@@ -121,12 +130,14 @@ export function buildManifest(secret: string, org?: string, env: NodeJS.ProcessE
     redirect_url: `${base}/api/setup/github/callback`,
     callback_urls: [`${base}/auth/github/callback`],
     setup_url: `${base}/`,
-    // PUBLIC so any teammate can install it on THEIR repos and connect. A private
-    // App can only be installed by the account that owns it, so other users hit
-    // `/apps/<slug>/installations/new` and get bounced to the App's landing page —
-    // they can't connect. (Public only means "installable by others"; each install
-    // is still explicit and repo-scoped, and the client secret stays secret.)
-    public: true,
+    // Visibility is configurable via GITHUB_APP_PUBLIC (default false = PRIVATE).
+    // PRIVATE (single-tenant): only the owning account can install it — right when
+    // one user/org runs their own Ada. PUBLIC (multi-tenant): any teammate can
+    // install it on THEIR repos and connect; a private App bounces other users at
+    // `/apps/<slug>/installations/new` (they can't connect). Public only means
+    // "installable by others" — each install is still explicit and repo-scoped, and
+    // the client secret stays secret.
+    public: isPublicApp(env),
     // Installing the App also runs the OAuth authorize in one flow, so a single
     // install grants repo selection + write (contents/pull_requests) AND returns
     // the user token via the callback. Without this, install and OAuth are separate.

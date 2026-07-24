@@ -113,6 +113,10 @@ Key facts:
 - **`ADMIN_EMAILS`** (optional input) → comma-separated admin emails allowed to
   provision the GitHub App from the web UI (matched against the ALB-verified
   identity). Unset ⇒ any signed-in user may do the *initial* setup, then it locks.
+- **`GITHUB_APP_PUBLIC`** (optional input, default `false`) → provision the GitHub
+  App **private** (single-tenant: only the owning account can install it). Set
+  `true` for **multi-tenant** so any teammate can install it on their own repos
+  and connect via chat.
 - The `claude` CLI version is a **build arg** (`CLAUDE_CODE_VERSION`, default
   `latest`) — **pin it** in production (see Pin list #1).
 
