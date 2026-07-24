@@ -25,8 +25,15 @@ export function githubPromptGuidance(opts: { configured: boolean; connected: boo
   if (opts.connected) {
     return (
       base +
-      " You ARE authenticated to GitHub as this user: a GH_TOKEN is already set in your environment, " +
-      "so use `git` and `gh` normally (clone, push, open PRs) acting as them."
+      " You ARE authenticated to GitHub as this user via a GitHub App token (GH_TOKEN is set). " +
+      "Use `git`/`gh` normally — clone, create a branch, push, and open a PR — acting as them. " +
+      "IMPORTANT about the App model: your access is limited to the repositories the Ayda GitHub " +
+      "App is INSTALLED on, with Contents + Pull requests write. So to propose changes, push a branch " +
+      "to the repo and open a PR (via `gh pr create`) — do NOT try to fork (the App token cannot create " +
+      "forks; it will 403). If a `git push`/`gh` call returns 403 or 'not found' on a repo, the App simply " +
+      "isn't installed on that repo (or the org) — do NOT retry, fork, or suggest a PAT. Instead tell the " +
+      "user to install the Ayda GitHub App on that repository by sending `connect github` here and picking " +
+      "it (org repos may need an org admin to approve the install)."
     );
   }
   return (
