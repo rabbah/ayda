@@ -245,14 +245,14 @@ async function continueSession(bridgeId: string, opts: TurnOpts): Promise<void> 
   await runTurn(bridgeId, cwd, opts);
 }
 
-/* ---------------- test hooks (AYDA_TEST_HOOKS=1 only) ---------------- */
+/* ---------------- test hooks (ADA_TEST_HOOKS=1 only) ---------------- */
 
 /**
  * TEST-ONLY: build a *finished* session by running the recorded read→edit→report
  * stream-json fixture through the Translator into the registry — the same path
  * scripts/demo-translate.ts exercises. Lets e2e tests seed a replayable session
  * (for SSE resume / delete assertions) without a real model call or credential.
- * Reached only from POST /test/seed, which is gated on AYDA_TEST_HOOKS=1.
+ * Reached only from POST /test/seed, which is gated on ADA_TEST_HOOKS=1.
  */
 function seedSession(): { sessionId: string; lastSeq: number } {
   const fixture = join(dirname(fileURLToPath(import.meta.url)), "..", "fixtures", "read-edit-report.streamjson.jsonl");
@@ -309,7 +309,7 @@ function render401(): string {
 <html lang="en"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Access denied · Ayda</title>
+<title>Access denied · Ada</title>
 <style>
   :root { --bg:#0f1115; --panel:#181b22; --line:#272b34; --fg:#e6e8ec; --muted:#8b93a1; --accent:#6ea8fe; --err:#ff6b6b; }
   * { box-sizing:border-box; }
@@ -690,9 +690,9 @@ async function main(): Promise<void> {
       return;
     }
 
-    // TEST-ONLY seed hook (inert unless AYDA_TEST_HOOKS=1); see seedSession().
+    // TEST-ONLY seed hook (inert unless ADA_TEST_HOOKS=1); see seedSession().
     if (req.method === "POST" && url.pathname === "/test/seed") {
-      if (process.env.AYDA_TEST_HOOKS !== "1") return void res.writeHead(404).end("not found");
+      if (process.env.ADA_TEST_HOOKS !== "1") return void res.writeHead(404).end("not found");
       try {
         res.writeHead(201, { "Content-Type": "application/json" }).end(JSON.stringify(seedSession()));
       } catch (e) {

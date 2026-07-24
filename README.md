@@ -1,6 +1,6 @@
-# Ayda
+# Ada
 
-**Ayda** is a coding agent powered by Claude Code. It runs a Claude Code session
+**Ada** is a coding agent powered by Claude Code. It runs a Claude Code session
 headlessly inside a container and re-emits its output as **AG-UI** events over
 **SSE**, so any AG-UI-compatible frontend (CopilotKit, custom dashboards) can
 consume it directly. You converse with it over **Slack / web chat** (the Astro
@@ -11,8 +11,8 @@ over a clean event API.
 > **Why the name?** Named for **Ada Lovelace** (1815–1852), who wrote the first
 > algorithm intended to be carried out by a machine and is widely regarded as the
 > first computer programmer — a fitting namesake for an agent that writes and runs
-> code for you. The Astropods blueprint deploys as **`ayda`** (a phonetic spelling
-> of "Ada") because `ada` isn't a valid blueprint name.
+> code for you. The Astropods blueprint deploys as
+> **`ada-your-personal-coding-agent`** because a bare `ada` isn't a valid blueprint name.
 
 > Status: **usable, with SCAFFOLD edges.** Multi-turn sessions, per-session
 > sandbox workspaces, GitHub per-user OAuth, the Astro AI Gateway path, and
@@ -143,7 +143,7 @@ npm test                                       # or: npm run test:ui
 - `test/client-delete.spec.ts` — the ✕ in the session menu issues `DELETE
   /sessions/:id` and removes the row.
 
-`POST /test/seed` is exposed ONLY when `AYDA_TEST_HOOKS=1` (set by
+`POST /test/seed` is exposed ONLY when `ADA_TEST_HOOKS=1` (set by
 `playwright.config.ts`'s `webServer`); it's inert in production. CI runs the suite
 on every push to `main` and every PR (`.github/workflows/e2e.yml`).
 
@@ -186,7 +186,7 @@ The same pipeline feeds both the SSE/AG-UI frontend and the messaging sidecar.
 
 ## Working on Slack (threads, repos, concurrency)
 
-Ayda is multi-threaded over Slack: the **conversation (thread) is the unit of
+Ada is multi-threaded over Slack: the **conversation (thread) is the unit of
 work and isolation**. The messaging sidecar dispatches threads concurrently, and
 each thread gets its own workspace, its own repo checkout, and its own Claude
 session — so different threads work on different repos at the same time without
@@ -198,7 +198,7 @@ interfering.
 work on owner/repo        (or: /work owner/repo)
 ```
 
-Ayda clones it into that thread's workspace and reuses the checkout across turns
+Ada clones it into that thread's workspace and reuses the checkout across turns
 (your work-in-progress is kept between messages — it is *not* reset). To work on
 a **different** repo, start a **new thread**; a thread stays bound to its first
 repo. `/whoami` shows the thread's bound repo and your GitHub connection.
@@ -208,7 +208,7 @@ How it behaves under load:
 - **Concurrent threads** run in parallel, bounded by `MAX_CONCURRENT_RUNS`
   (default 3) so a burst of threads can't exhaust the box — excess runs queue.
 - **Rapid messages in one thread**: a new message supersedes the in-flight run.
-  The sidecar aborts it and Ayda kills the old `claude` child, so two runs never
+  The sidecar aborts it and Ada kills the old `claude` child, so two runs never
   race in one workspace.
 - **Idle workspaces** are reclaimed by a TTL sweep (`startWorkspaceGc`); set
   `WORKSPACE_ROOT` to a persistent volume so a thread can resume days later.

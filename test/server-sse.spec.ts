@@ -3,7 +3,7 @@ import http from "node:http";
 
 /**
  * Server-side counterparts to the client tests, using the test-only POST /test/seed
- * hook (AYDA_TEST_HOOKS=1) to build a finished, replayable session without a model
+ * hook (ADA_TEST_HOOKS=1) to build a finished, replayable session without a model
  * call. Covers the resume-precedence fix (Last-Event-ID header beats the sticky
  * ?lastEventId query) and the DELETE /sessions/:id semantics.
  */

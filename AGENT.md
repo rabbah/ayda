@@ -1,6 +1,6 @@
 ---
-description: "Ayda — a coding agent (powered by Claude Code) you talk to over Slack, web chat, or an AG-UI/SSE frontend."
-tags: [ayda, claude-code, ag-ui, sse, slack, github, wrapper]
+description: "Ada — a coding agent (powered by Claude Code) you talk to over Slack, web chat, or an AG-UI/SSE frontend."
+tags: [ada, claude-code, ag-ui, sse, slack, github, wrapper]
 capabilities:
   - "Runs a Claude Code session via the Claude Agent SDK inside the container"
   - "Holds multi-turn conversations, resuming session context across follow-up turns"
@@ -11,15 +11,15 @@ capabilities:
   - "Serves an AG-UI-compatible frontend; external AG-UI clients (e.g. CopilotKit) can consume the stream"
   - "Connects each user's GitHub via per-user OAuth so git/gh act as them"
   - "Persists the final run result (cost, usage) and exports OTel traces/metrics"
-repository: github:rabbah/ayda
+repository: github:rabbah/ada
 integrations: [GitHub, Slack]
 ---
 
 ## Overview
 
-**Ayda** is a coding agent powered by Claude Code. A wrapper process runs a
+**Ada** is a coding agent powered by Claude Code. A wrapper process runs a
 Claude Code session (via the Claude Agent SDK) and exposes it over a clean event
-API — converse with Ayda over Slack / web chat (the platform messaging sidecar)
+API — converse with Ada over Slack / web chat (the platform messaging sidecar)
 or any AG-UI frontend. Claude Code runs headless inside the container; its
 newline-delimited `stream-json` output is translated into
 [AG-UI](https://docs.ag-ui.com) protocol events and streamed to the browser
@@ -36,13 +36,14 @@ Model calls route through the Astro AI Gateway (`astro_ai_gateway: true`), so
 the container needs no personal `ANTHROPIC_API_KEY`. Supplying one as an input
 opts out of the gateway and talks to Anthropic directly.
 
-> **Why the name?** *Ayda* is a phonetic spelling of **Ada**, after Ada Lovelace
-> — widely regarded as the first computer programmer — a fitting namesake for a
-> coding agent. The blueprint is `ayda` because `ada` isn't a valid name.
+> **Why the name?** Named after **Ada Lovelace** — widely regarded as the first
+> computer programmer — a fitting namesake for a coding agent. The Astropods
+> blueprint deploys as `ada-your-personal-coding-agent` because a bare `ada`
+> isn't a valid blueprint name.
 
 ## Usage
 
-Message Ayda over Slack / web chat, or open the agent's frontend URL and send a
+Message Ada over Slack / web chat, or open the agent's frontend URL and send a
 prompt (e.g. *"read config.json and bump the retries"*). You'll see streaming
 assistant text, tool-call cards with live arguments, tool results, and a final
 result — as AG-UI events. Keep replying to continue the same session: follow-up
@@ -58,11 +59,11 @@ External clients can drive the same pipeline over HTTP:
 
 ## GitHub
 
-Ayda can act on GitHub as the individual user it's talking to — no static token
+Ada can act on GitHub as the individual user it's talking to — no static token
 baked into the container.
 
 - **Connect** — a user runs `/connect-github` in a DM (or clicks **Connect
-  GitHub** in the web UI); Ayda replies with a link to authorize. Their token is
+  GitHub** in the web UI); Ada replies with a link to authorize. Their token is
   stored per-user and injected as `GH_TOKEN`, so `git` and `gh` inside the Claude
   session act as them.
 - **Set up** — an admin (whose verified email is listed in `ADMIN_EMAILS`) opens

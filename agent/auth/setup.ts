@@ -109,14 +109,14 @@ export interface ManifestResult {
 
 /**
  * Build the App manifest + the GitHub URL to submit it to. Permissions mirror
- * what Ayda's agent needs through the user token (Contents + Pull requests);
- * no webhook/private-key machinery since Ayda only uses user-to-server OAuth.
+ * what Ada's agent needs through the user token (Contents + Pull requests);
+ * no webhook/private-key machinery since Ada only uses user-to-server OAuth.
  * `org` scopes the App to an organization instead of the personal account.
  */
 export function buildManifest(secret: string, org?: string, env: NodeJS.ProcessEnv = process.env): ManifestResult {
   const base = externalBase(env);
   const manifest = {
-    name: "Ayda",
+    name: "Ada",
     url: base,
     redirect_url: `${base}/api/setup/github/callback`,
     callback_urls: [`${base}/auth/github/callback`],

@@ -49,7 +49,7 @@ type Directive =
 /** Parse a whole-message directive, or null if the message isn't one. */
 function parseDirective(prompt: string): Directive | null {
   // Strip leading Slack mentions: addressing the bot in a channel prepends
-  // `<@U123>` (or `<@U123|name>`), so `@Ayda connect github` arrives as
+  // `<@U123>` (or `<@U123|name>`), so `@Ada connect github` arrives as
   // `<@U123> connect github`. Without this the exact-match directives below never
   // fire in channels and fall through to a (slow, costly) LLM turn instead.
   const t = prompt.replace(/^\s*(?:<@[^>]+>\s*)+/, "").trim();
@@ -77,7 +77,7 @@ function isPrivate(options: StreamOptions): boolean {
 }
 
 export class ClaudeCodeAdapter implements AgentAdapter {
-  readonly name = "Ayda";
+  readonly name = "Ada";
   private readonly store: Store;
   private readonly allowedTools: string[];
   /** Optional: mirror each turn's AG-UI events here so the frontend can review

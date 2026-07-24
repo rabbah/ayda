@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Ayda · test client</title>
+<title>Ada · test client</title>
 <!-- Markdown rendering for assistant messages. Pinned + SRI so a changed/compromised
      CDN file can't execute; DOMPurify sanitizes marked's output (see renderMarkdown). -->
 <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"
@@ -13,7 +13,7 @@
         integrity="sha384-XQqX/4yiUGu+oyr87jvWzRuqBUK/adrY0DunhL+tID9m/9dwSpV8h9Fk/Sg6ifVQ"
         crossorigin="anonymous"></script>
 <style>
-  /* Ayda theme — Ada Lovelace lavender + gold on a deep-purple dark base. */
+  /* Ada theme — Ada Lovelace lavender + gold on a deep-purple dark base. */
   :root {
     --bg:#15111f; --panel:#1e1930; --line:#2f2747; --code:#100d1a;
     --fg:#ece9f5; --muted:#9d94b8;
@@ -156,7 +156,7 @@
 <header>
   <div class="brand">
     <!-- Punch-card mark (gold dots + lavender dashes) — nods to Ada Lovelace / the Analytical Engine. -->
-    <svg class="brand-mark" width="26" height="26" viewBox="0 0 26 26" role="img" aria-label="Ayda">
+    <svg class="brand-mark" width="26" height="26" viewBox="0 0 26 26" role="img" aria-label="Ada">
       <rect x="0.75" y="0.75" width="24.5" height="24.5" rx="7" fill="#241d3a" stroke="#3a2d5c" stroke-width="1"/>
       <g fill="#e6b64a"><circle cx="6.5" cy="7" r="1.5"/><circle cx="6.5" cy="13" r="1.5"/><circle cx="6.5" cy="19" r="1.5"/></g>
       <g stroke="#9b7dff" stroke-width="1.7" stroke-linecap="round">
@@ -165,7 +165,7 @@
         <line x1="10.5" y1="19" x2="20" y2="19"/>
       </g>
     </svg>
-    <h1>Ayda</h1>
+    <h1>Ada</h1>
   </div>
   <button id="sid-btn" class="chip chip-btn" title="Switch session">session <b id="sid">—</b> <span class="caret">▾</span></button>
   <span class="chip">status <b id="status">idle</b></span>
@@ -174,7 +174,7 @@
   <span class="chip">cost <b id="cost">—</b></span>
   <span class="chip">conn <b id="conn">—</b></span>
   <span class="chip chip-debug">lastEventId <b id="lei">—</b></span>
-  <button id="review-btn" class="chip chip-btn" title="Review conversations Ayda handled" hidden>Review <span class="caret">▾</span></button>
+  <button id="review-btn" class="chip chip-btn" title="Review conversations Ada handled" hidden>Review <span class="caret">▾</span></button>
   <button id="settings-btn" class="chip chip-btn" title="Settings" aria-label="Settings">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
   </button>
@@ -385,17 +385,17 @@ function switchSession(id){
   connect(-1); // replay everything from the server's buffer, then live-tail
 }
 // Detach from the current session and clear the view; the next prompt starts fresh.
-// ASCII "AYDA" welcome, shown on an empty timeline (initial load + New session)
+// ASCII "ADA" welcome, shown on an empty timeline (initial load + New session)
 // and replaced the moment a turn starts (the timeline is cleared). Built from
 // per-line strings so source indentation can't corrupt the art.
 const WELCOME_HTML =
   '<div class="welcome"><pre class="ascii" aria-hidden="true">'
-  + ' █████╗ ██╗   ██╗██████╗  █████╗ \n'
-  + '██╔══██╗╚██╗ ██╔╝██╔══██╗██╔══██╗\n'
-  + '███████║ ╚████╔╝ ██║  ██║███████║\n'
-  + '██╔══██║  ╚██╔╝  ██║  ██║██╔══██║\n'
-  + '██║  ██║   ██║   ██████╔╝██║  ██║\n'
-  + '╚═╝  ╚═╝   ╚═╝   ╚═════╝ ╚═╝  ╚═╝'
+  + ' █████╗ ██████╗  █████╗ \n'
+  + '██╔══██╗██╔══██╗██╔══██╗\n'
+  + '███████║██║  ██║███████║\n'
+  + '██╔══██║██║  ██║██╔══██║\n'
+  + '██║  ██║██████╔╝██║  ██║\n'
+  + '╚═╝  ╚═╝╚═════╝ ╚═╝  ╚═╝'
   + '</pre>'
   + '<p class="tagline">A coding agent you converse with — on Slack, web chat, or right here.</p>'
   + '<p class="hint">Try <code>work on owner/repo</code> to start a task, or <code>connect github</code> to link your account.</p>'
@@ -425,7 +425,7 @@ document.addEventListener("click", (e) => {
 });
 
 // ---- Conversation review (admin) -------------------------------------------
-// Browse the conversations Ayda handled over Slack/web and replay any one of
+// Browse the conversations Ada handled over Slack/web and replay any one of
 // them READ-ONLY. GET /conversations is admin-gated server-side; if it 403s we
 // never show the Review button.
 let reviewing = false;

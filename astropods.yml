@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=https://astropods.ai/schema/package.json
 spec: package/v1
-name: ayda
+name: ada-your-personal-coding-agent
 
 agent:
   build:

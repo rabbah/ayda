@@ -1,9 +1,9 @@
 {
-  "name": "ayda-sandbox",
+  "name": "ada-sandbox",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Isolated, secret-less Claude Code execution sandbox for Ayda. Runs the Claude Agent SDK + git per-conversation; reached over HTTP by the control plane.",
+  "description": "Isolated, secret-less Claude Code execution sandbox for Ada. Runs the Claude Agent SDK + git per-conversation; reached over HTTP by the control plane.",
   "scripts": {
     "start": "node sandbox/index.ts"
   },

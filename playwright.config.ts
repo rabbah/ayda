@@ -1,11 +1,11 @@
 import { defineConfig, devices } from "@playwright/test";
 
 /**
- * Playwright config for the Ayda bridge e2e tests.
+ * Playwright config for the Ada bridge e2e tests.
  *
  * The server (`node agent/index.ts`) has NO external runtime dependencies — every
  * external package (the Claude SDK, pg, OTel) is dynamically imported and guarded,
- * so the process boots on Node alone. We launch it here with AYDA_TEST_HOOKS=1 so
+ * so the process boots on Node alone. We launch it here with ADA_TEST_HOOKS=1 so
  * the test-only POST /test/seed route (which seeds a replayable session from the
  * recorded fixture — no model call) is available.
  *
@@ -32,7 +32,7 @@ export default defineConfig({
     url: BASE_URL,
     reuseExistingServer: !process.env.CI,
     timeout: 30_000,
-    env: { PORT: String(PORT), AYDA_TEST_HOOKS: "1" },
+    env: { PORT: String(PORT), ADA_TEST_HOOKS: "1" },
     stdout: "pipe",
     stderr: "pipe",
   },

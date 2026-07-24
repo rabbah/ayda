@@ -1,4 +1,4 @@
-# Ayda execution sandbox — isolated, secret-less Claude Code runner.
+# Ada execution sandbox — isolated, secret-less Claude Code runner.
 # Built from the repo root (context: .) so it can share agent/ source with the
 # control plane; run as: docker build -f sandbox/Dockerfile .
 # Node 24 runs the .ts sources natively via type-stripping (requires >= 23).
@@ -51,7 +51,7 @@ ENV NODE_ENV=production \
     PORT=3000 \
     WORKSPACE_ROOT=/data/workspaces \
     GIT_TERMINAL_PROMPT=0 \
-    OTEL_SERVICE_NAME=ayda-sandbox \
+    OTEL_SERVICE_NAME=ada-sandbox \
     PATH="/usr/local/go/bin:${PATH}" \
     GOMODCACHE=/data/cache/go/mod \
     GOCACHE=/data/cache/go/build \

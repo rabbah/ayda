@@ -174,7 +174,7 @@ export class ClaudeAgentSession extends EventEmitter<Events> {
       includePartialMessages: this.opts.includePartialMessages ?? true,
       // Run LEAN to cut the child's cold-start + memory: don't scan the filesystem
       // for skills / subagents / slash-commands / CLAUDE.md (settingSources: []),
-      // load no skills, and skip MCP discovery. Ayda is a code agent (Read/Edit/
+      // load no skills, and skip MCP discovery. Ada is a code agent (Read/Edit/
       // Write/Bash/Grep/Glob) — none of that is used. The claude_code preset,
       // model, and agentic loop (maxTurns) are deliberately KEPT.
       settingSources: [],
@@ -237,7 +237,7 @@ export class ClaudeAgentSession extends EventEmitter<Events> {
       await fn();
       return;
     }
-    const span = otel.trace.getTracer("ayda").startSpan("ayda.agent.run");
+    const span = otel.trace.getTracer("ada").startSpan("ada.agent.run");
     span.setAttribute("langfuse.user.id", this.opts.userId || "anonymous");
     const ctx = otel.trace.setSpan(otel.context.active(), span);
     try {

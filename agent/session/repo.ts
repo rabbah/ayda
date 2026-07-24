@@ -5,7 +5,7 @@
  * binds it with `work on <owner/repo>`; we clone that repo once into the thread's
  * workspace and reuse it across turns. This is the read-WRITE analog of
  * cruise-line's per-PR clone dirs: cruise-line shares a read-only clone and
- * `git clean`s between runs, but Ayda edits/commits, so every thread gets its own
+ * `git clean`s between runs, but Ada edits/commits, so every thread gets its own
  * isolated checkout that is NOT reset between turns (work-in-progress is kept).
  *
  * Auth uses the image's git credential helper (`gh auth git-credential`) fed by
